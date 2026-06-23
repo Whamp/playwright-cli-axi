@@ -44,7 +44,7 @@ function pruneJson(value: Record<string, unknown>): ToonValue {
   for (const [key, child] of Object.entries(value)) {
     if (key === 'isError') continue;
     if (typeof child === 'string' || typeof child === 'number' || typeof child === 'boolean' || child === null) output[key] = child;
-    else if (Array.isArray(child)) output[key] = child.map((entry) => simpleValue(entry));
+    else if (Array.isArray(child)) output[key] = child.map((entry) => simpleValue(entry)) as ToonValue;
     else if (isObject(child)) output[key] = pruneJson(child);
     else output[key] = String(child);
   }
@@ -53,7 +53,7 @@ function pruneJson(value: Record<string, unknown>): ToonValue {
 
 function simpleValue(value: unknown): ToonValue {
   if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' || value === null) return value;
-  if (Array.isArray(value)) return value.map((entry) => simpleValue(entry));
+  if (Array.isArray(value)) return value.map((entry) => simpleValue(entry)) as ToonValue;
   if (isObject(value)) return pruneJson(value);
   return String(value);
 }

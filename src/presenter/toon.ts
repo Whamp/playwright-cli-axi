@@ -93,7 +93,7 @@ function isPlainObject(value: unknown): value is { [key: string]: ToonValue } {
 }
 
 function scalarOrNull(value: ToonValue): string | number | boolean | null {
-  if (value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value;
+  if (value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value as string | number | boolean | null;
   if (Array.isArray(value) || isPlainObject(value)) return null;
   return null;
 }
