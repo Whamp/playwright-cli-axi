@@ -30,7 +30,6 @@ export function createUpstreamRunner(options: CreateUpstreamRunnerOptions): Upst
         cwd: options.cwd,
         env: {
           ...options.env,
-          CI: options.env.CI ?? '1',
           NO_COLOR: '1'
         },
         stdio: ['ignore', 'pipe', 'pipe']

@@ -205,7 +205,8 @@ function noVideosRecorded(parsed: ReturnType<typeof parseUpstreamOutput>): boole
 }
 
 function videoStartConfirmed(parsed: ReturnType<typeof parseUpstreamOutput>): boolean {
-  return /video recording started|recording started|started recording/i.test(successText(parsed));
+  const text = successText(parsed);
+  return text === 'Video recording started.' || text.startsWith('Video recording started.');
 }
 
 function successText(parsed: ReturnType<typeof parseUpstreamOutput>): string {

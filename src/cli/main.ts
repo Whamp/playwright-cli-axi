@@ -65,7 +65,7 @@ async function renderHome(deps: Required<CliDependencies>): Promise<CliResult> {
   const parsed = parseUpstreamOutput(listRun.stdout, listRun.stderr, listRun.exitCode);
   const sessions = parsed.kind === 'json' && !parsed.isError ? normalizeSessions(parsed.value) : normalizeSessions(undefined);
   const reconciledVideo = reconcileVideoState(video, { browserCount: sessions.browsers.count });
-  if (JSON.stringify(reconciledVideo) !== JSON.stringify(video)) await store.save(reconciledVideo);
+  if (reconciledVideo.recording.status !== video.recording.status || reconciledVideo.warnings.length !== video.warnings.length) await store.save(reconciledVideo);
   const model = homeModel({
     executablePath: deps.executablePath,
     cwd: deps.cwd,
