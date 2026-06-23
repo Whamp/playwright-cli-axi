@@ -20,7 +20,7 @@ export interface VideoCommandContext {
 export async function handleVideoCommand(context: VideoCommandContext): Promise<CliResult> {
   const command = commandName(context.argv) as VideoCommandName;
   const state = await context.store.load();
-  const validation = validateVideoCommand(command, argsAfterCommand(context.argv), state);
+  const validation = validateVideoCommand(command, argsAfterCommand(context.argv));
   if (!validation.ok) {
     return {
       exitCode: 2,
@@ -67,7 +67,7 @@ export type VideoOptions = {
 
 type Validation = { ok: true; options: VideoOptions } | { ok: false; message: string; help: string[] };
 
-export function validateVideoCommand(command: VideoCommandName, args: string[], state?: VideoSidecarState): Validation {
+export function validateVideoCommand(command: VideoCommandName, args: string[]): Validation {
   const parsed = parseArgs(args);
   if (!parsed.ok) return { ok: false, message: parsed.message, help: [`playwright-cli-axi ${command} --help`] };
   const { positionals, flags } = parsed.options;

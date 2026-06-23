@@ -75,8 +75,8 @@ const validCaseArb: Arbitrary<ValidCase> = fc.oneof(
 describe("videoCommands properties", () => {
 	it("accepts generated valid argv shapes for every video command", () => {
 		fc.assert(
-			fc.property(validCaseArb, ({ command, args, state }) => {
-				expect(validateVideoCommand(command, [...args], state).ok).toBe(true);
+			fc.property(validCaseArb, ({ command, args }) => {
+				expect(validateVideoCommand(command, [...args]).ok).toBe(true);
 			}),
 			propertyOptions,
 		);
