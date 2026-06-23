@@ -199,6 +199,10 @@ Property-based tests use the fast-check framework to generate hundreds of random
 inputs and verify invariants that must hold for all valid inputs. This complements
 example-based tests by finding edge cases that manual test examples miss.
 
+Property tests are identified by the word "properties" in their describe block name
+(e.g., `describe("session normalization properties", () => {`), which allows them
+to be run via `npm run test:prop` using the `-t properties` filter.
+
 The project uses custom arbitraries in `src/test/arbitraries.ts` to generate:
 
 - Safe strings for keys, args, and lines (length-limited alphanumerics)
