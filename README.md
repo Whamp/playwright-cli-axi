@@ -204,7 +204,7 @@ The project uses custom arbitraries in `src/test/arbitraries.ts` to generate:
 - Safe strings for keys, args, and lines (length-limited alphanumerics)
 - JSON values for upstream parsing tests
 - TOON values and tables for rendering invariants
-- Shared video status and size generators used by video-state and video-command model tests
+- Shared video recording status, overlay status, and size generators used by video-state and video-command model tests
 
 Run only property-based tests with `npm run test:prop`. If fast-check reports a
 failure, copy the printed `seed` and `path` into the failing `fc.assert` options
