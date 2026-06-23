@@ -16,6 +16,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:unit": "vitest run src",
+    "test:prop": "vitest run src/**/*.property.spec.ts",
     "test:golden": "vitest run src/presenter",
     "generate:skill": "tsx scripts/generate-skill.ts",
     "check:skill": "tsx scripts/check-skill.ts",
@@ -26,6 +27,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "fast-check": "^4.8.0",
     "tsup": "^8.5.0",
     "tsx": "^4.20.0",
     "typescript": "^5.8.0",

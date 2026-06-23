@@ -182,10 +182,16 @@ PLAYWRIGHT_MCP_EXECUTABLE_PATH=/usr/bin/chromium npm run smoke:video
 ## Verification
 
 ```sh
-npm run build
+npm run typecheck
 npm test
-npm run check:skill
+npm run test:prop
+npm run build
+npm run generate:skill && npm run check:skill
 ```
+
+The test suite includes example-based Vitest specs and fast-check property/model
+specs for parsing, argv handling, TOON rendering, session normalization, video
+sidecar state, video command state transitions, and error/help/home presenters.
 
 Manual AXI smoke without a browser:
 

@@ -28,12 +28,13 @@ export function toToon(value: ToonValue): string {
 }
 
 function encodeRoot(value: ToonValue): string[] {
+	if (Array.isArray(value)) return encodeNamed("items", value, 0);
 	if (isPlainObject(value)) {
 		return Object.entries(value).flatMap(([key, child]) =>
 			encodeNamed(key, child, 0),
 		);
 	}
-	return [formatScalar(value as string | number | boolean | null)];
+	return [formatScalar(scalarOrNull(value))];
 }
 
 function encodeNamed(key: string, value: ToonValue, indent: number): string[] {
@@ -57,14 +58,14 @@ function encodeNamed(key: string, value: ToonValue, indent: number): string[] {
 				}
 				const [firstKey, firstValue] = entries[0]!;
 				lines.push(
-					`${" ".repeat(indent + 2)}- ${firstKey}: ${formatScalar(firstValue as string | number | boolean | null)}`,
+					`${" ".repeat(indent + 2)}- ${firstKey}: ${formatScalar(scalarOrNull(firstValue as ToonValue))}`,
 				);
 				for (const [childKey, childValue] of entries.slice(1)) {
 					lines.push(...encodeNamed(childKey, childValue, indent + 4));
 				}
 			} else {
 				lines.push(
-					`${" ".repeat(indent + 2)}- ${formatScalar(item as string | number | boolean | null)}`,
+					`${" ".repeat(indent + 2)}- ${formatScalar(scalarOrNull(item as ToonValue))}`,
 				);
 			}
 		}
@@ -122,7 +123,14 @@ function quote(value: string): string {
 }
 
 function isTable(value: ToonValue): value is ToonTable {
-	return isPlainObject(value) && value.__toon === "table";
+	return (
+		isPlainObject(value) &&
+		value.__toon === "table" &&
+		Array.isArray(value.fields) &&
+		value.fields.every((field) => typeof field === "string") &&
+		Array.isArray(value.rows) &&
+		value.rows.every(isPlainObject)
+	);
 }
 
 function isPlainObject(value: unknown): value is { [key: string]: ToonValue } {
