@@ -4,7 +4,7 @@ import type { VideoStore, VideoSidecarState } from './videoState.js';
 import { parseUpstreamOutput, isObject } from '../upstream/parse.js';
 import type { UpstreamRunner } from '../upstream/runner.js';
 import { errorToStdout } from '../presenter/errors.js';
-import { toToon } from '../presenter/toon.js';
+import { toToon, type ToonValue } from '../presenter/toon.js';
 import { normalizeUpstreamError } from '../upstream/errors.js';
 
 const POSITIONS = ['top-left', 'top', 'top-right', 'bottom-left', 'bottom', 'bottom-right'] as const;
@@ -155,7 +155,7 @@ function mutateStateAfterSuccess(command: VideoCommandName, options: VideoOption
   }
 }
 
-function videoSuccessModel(command: VideoCommandName, options: VideoOptions, state: VideoSidecarState, parsed: ReturnType<typeof parseUpstreamOutput>) {
+function videoSuccessModel(command: VideoCommandName, options: VideoOptions, state: VideoSidecarState, parsed: ReturnType<typeof parseUpstreamOutput>): ToonValue {
   if (command === 'video-stop') {
     return {
       command,

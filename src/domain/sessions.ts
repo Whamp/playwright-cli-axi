@@ -1,10 +1,11 @@
 import { isObject } from '../upstream/parse.js';
+import type { ToonValue } from '../presenter/toon.js';
 
 export interface SessionSummary {
   browsers: { count: number; empty?: string; rows: BrowserRow[] };
 }
 
-export interface BrowserRow {
+export interface BrowserRow extends Record<string, ToonValue> {
   id: string;
   name: string;
   status: string;

@@ -126,7 +126,7 @@ async function runCloseLikeCommand(argv: string[], deps: Required<CliDependencie
     await store.save(abandoned);
   }
 
-  return { exitCode: 0, stdout: toToon({ ...successModel(argv, parsed), ...(warnings.length > 0 ? { warnings } : {}) }) };
+  return { exitCode: 0, stdout: toToon({ ...(successModel(argv, parsed) as Record<string, ToonValue>), ...(warnings.length > 0 ? { warnings } : {}) }) };
 }
 
 function successModel(argv: string[], parsed: ReturnType<typeof parseUpstreamOutput>): ToonValue {

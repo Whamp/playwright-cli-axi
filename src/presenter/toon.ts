@@ -28,7 +28,7 @@ function encodeNamed(key: string, value: ToonValue, indent: number): string[] {
   const prefix = ' '.repeat(indent);
   if (isTable(value)) {
     const header = `${prefix}${key}[${value.rows.length}]{${value.fields.join(',')}}:`;
-    const rows = value.rows.map((row) => `${' '.repeat(indent + 2)}${value.fields.map((field) => formatScalar(row[field] ?? '')).join(',')}`);
+    const rows = value.rows.map((row) => `${' '.repeat(indent + 2)}${value.fields.map((field) => formatScalar(scalarOrNull(row[field]) ?? '')).join(',')}`);
     return [header, ...rows];
   }
   if (Array.isArray(value)) {
@@ -90,6 +90,12 @@ function isTable(value: ToonValue): value is ToonTable {
 
 function isPlainObject(value: unknown): value is { [key: string]: ToonValue } {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function scalarOrNull(value: ToonValue): string | number | boolean | null {
+  if (value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value;
+  if (Array.isArray(value) || isPlainObject(value)) return null;
+  return null;
 }
 
 function assertInvariants(output: string): void {

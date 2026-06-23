@@ -8,7 +8,7 @@ export const CATALOG = {
     'playwright-cli-axi video-start ./recording.webm --size 800x600',
     'playwright-cli-axi video-stop',
     'playwright-cli-axi --help'
-  ],
+  ] as string[],
   videoCommands: {
     'video-start': 'Start recording the current browser session to an optional WebM file.',
     'video-stop': 'Stop recording and report any video files returned by upstream.',
@@ -16,7 +16,7 @@ export const CATALOG = {
     'video-show-actions': 'Overlay subsequent action names and target highlights on the page.',
     'video-hide-actions': 'Stop overlaying action callouts on the page.'
   }
-} as const;
+};
 
 export function renderSkillMarkdown(): string {
   const commandLines = Object.entries(CATALOG.videoCommands)

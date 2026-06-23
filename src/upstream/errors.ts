@@ -5,7 +5,7 @@ import { sanitizeDependencyText } from './parse.js';
 import type { UpstreamRun } from './runner.js';
 
 export function normalizeUpstreamError(argv: string[], run: UpstreamRun, parsed: ParsedUpstream): CliResult {
-  const raw = parsed.error ?? parsed.text ?? run.stderr ?? run.stdout;
+  const raw = parsed.error ?? (parsed.kind === 'text' ? parsed.text : undefined) ?? run.stderr ?? run.stdout;
   const clean = sanitizeMessage(raw);
   const command = argv.join(' ');
   if (/browser .* is not open|browser '.*' is not open|please run open first/i.test(clean)) {
