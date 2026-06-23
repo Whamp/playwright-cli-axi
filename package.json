@@ -1,0 +1,36 @@
+{
+  "name": "playwright-cli-axi",
+  "version": "0.1.0",
+  "description": "AXI-friendly TOON wrapper around @playwright/cli with first-class video support.",
+  "type": "module",
+  "bin": {
+    "playwright-cli-axi": "dist/bin/playwright-cli-axi.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    ".agents/skills/playwright-cli-axi/SKILL.md"
+  ],
+  "scripts": {
+    "build": "tsup --config tsup.config.ts",
+    "test": "vitest run",
+    "test:unit": "vitest run src",
+    "test:golden": "vitest run src/presenter",
+    "generate:skill": "tsx scripts/generate-skill.ts",
+    "check:skill": "tsx scripts/check-skill.ts",
+    "smoke:video": "bash scripts/smoke-video.sh"
+  },
+  "dependencies": {
+    "@playwright/cli": "^0.1.14"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsup": "^8.5.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

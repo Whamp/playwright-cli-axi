@@ -1,2 +1,6 @@
 .ml-cache/
 .mainline/local.toml
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
