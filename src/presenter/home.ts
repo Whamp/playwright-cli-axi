@@ -9,11 +9,12 @@ export interface HomeInput {
   upstreamVersion: string;
   sessions: SessionSummary;
   video: VideoSidecarState;
+  home?: string;
 }
 
 export function homeModel(input: HomeInput): ToonValue {
   return {
-    bin: collapseHome(input.executablePath),
+    bin: collapseHome(input.executablePath, input.home),
     description: CATALOG.description,
     cwd: input.cwd,
     upstream: { package: '@playwright/cli', version: input.upstreamVersion },
@@ -56,8 +57,7 @@ export function homeModel(input: HomeInput): ToonValue {
   };
 }
 
-function collapseHome(path: string): string {
-  const home = process.env.HOME;
+function collapseHome(path: string, home: string | undefined): string {
   if (home && path === home) return '~';
   if (home && path.startsWith(`${home}/`)) return `~/${path.slice(home.length + 1)}`;
   return path;

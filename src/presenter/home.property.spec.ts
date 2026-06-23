@@ -43,12 +43,15 @@ describe("homeModel properties", () => {
 					};
 
 					const model = homeModel({
-						executablePath: "/usr/local/bin/playwright-cli-axi",
+						executablePath: "/home/will/bin/playwright-cli-axi",
 						cwd: "/repo",
 						upstreamVersion: "0.1.14",
 						sessions,
 						video,
+						home: "/home/will",
 					}) as Record<string, unknown>;
+
+					expect(model.bin).toBe("~/bin/playwright-cli-axi");
 
 					expect(model.browsers).toEqual({
 						count: browsers.length,

@@ -44,13 +44,12 @@ class MemoryVideoStore implements VideoStore {
 	}
 }
 
-type ValidCase = { command: VideoCommandName; args: readonly string[]; state?: VideoSidecarState };
+type ValidCase = { command: VideoCommandName; args: readonly string[] };
 
 const validCaseArb: Arbitrary<ValidCase> = fc.oneof(
 	fc.record({ file: fc.option(safeArgArb, { nil: undefined }), size: fc.option(videoSizeArb, { nil: undefined }) }).map(({ file, size }) => ({
 		command: "video-start" as const,
 		args: [...(file ? [file] : []), ...(size ? ["--size", size] : [])],
-		state: { ...defaultVideoState("/repo", "key", "default"), recording: { status: "inactive" as const } },
 	})),
 	fc.constant({ command: "video-stop", args: [] }),
 	fc.record({ title: safeArgArb, description: fc.option(safeArgArb, { nil: undefined }), duration: fc.option(durationArb, { nil: undefined }) }).map(

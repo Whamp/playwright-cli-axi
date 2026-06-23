@@ -29,12 +29,15 @@ The package bin is `playwright-cli-axi` when installed globally or through `npx`
 - User `--json` flags are stripped because wrapper output remains TOON.
 - Commands that reject upstream `--json`, such as `install-browser`, are forwarded without JSON injection.
 
-Example no-args shape with active video state:
+Example no-args shape:
 
 ```toon
 bin: ~/.local/bin/playwright-cli-axi
 description: AXI-friendly Playwright browser control with TOON output and video state
 cwd: /workspace/project
+upstream:
+  package: @playwright/cli
+  version: 0.1.14
 browsers:
   count: 0
   empty: no open browsers
@@ -45,17 +48,12 @@ channel_sessions:
   count: 0
   empty: no channel sessions
 video:
-  status: active
+  status: inactive
   source: sidecar
-  requestedFile: ./demo.webm
-  requestedSize: 1280x720
-  startedAt: 2026-06-23T20:00:00.000Z
-  files: 2
-  chapters: 1
-  actions: active
-  lastFiles[2]:
-    - ./demo.webm
-    - ./artifact.json
+  recording: false
+  files: 0
+  chapters: 0
+  actions: unknown
 next[5]:
   - "playwright-cli-axi open https://example.com"
   - playwright-cli-axi list --all
@@ -68,7 +66,7 @@ The wrapper forwards all upstream `@playwright/cli` commands. Key commands:
 - `playwright-cli-axi` — Show home view with browser and video state
 - `playwright-cli-axi list [--all]` — List open browsers, attachable servers, and channel sessions with TOON formatting
 - `playwright-cli-axi open <url>` — Open a browser session
-- `playwright-cli-axi close` — Close the current browser and report session close status
+- `playwright-cli-axi close` — Close the current browser and report close status
 - `playwright-cli-axi close-all` — Close all browsers
 - `playwright-cli-axi kill-all` — Kill all browser daemon processes
 - `playwright-cli-axi delete-data` — Delete browser data
@@ -79,30 +77,29 @@ The wrapper forwards all upstream `@playwright/cli` commands. Key commands:
 The wrapper injects `--json` into upstream commands and reformats output as TOON,
 except for commands like `install-browser` that reject JSON mode.
 
-Example `list --all` output with servers and channel sessions:
+Example `list --all` output with browser, server, and channel-session inventory:
 
 ```toon
 command: list
 status: ok
+family:
+  id: session
+  title: Browser sessions
 browsers:
-  count: 2
-browser_rows[2]:
-  - [id, name, status]
-  - ["default", "chrome", "open"]
-  - ["debug", "chrome", "open"]
+  count: 1
+browser_rows[1]{id,name,status}:
+  default,chromium,open
 servers:
   count: 1
-server_rows[1]:
-  - [title, browser, version, dataDir, workspace]
-  - ["debug-server", "chrome", "1.48.0", "/tmp/data", "/workspace"]
+server_rows[1]{title,browser,version,dataDir,workspace}:
+  debug-server,chromium,1.48.0,/tmp/data,/workspace
 channel_sessions:
   count: 1
-channel_session_rows[1]:
-  - [channel, dataDir, extension, endpoint]
-  - ["default", "/tmp/state", "yes", "yes"]
+channel_session_rows[1]{channel,dataDir,extension,endpoint}:
+  chrome,/tmp/chrome,yes,yes
 ```
 
-Example `close` output with session close status:
+Example `close` output preserves upstream single-session close status:
 
 ```toon
 command: close
@@ -180,29 +177,29 @@ playwright-cli-axi video-stop
   - `--cursor pointer|none` — Cursor decoration (default: pointer)
 - `video-hide-actions` — Stop overlaying action callouts on the page
 
-Example `video-stop` output with typed video artifacts:
+Example `video-stop` output reports WebM files separately from other artifacts:
 
 ```toon
 command: video-stop
 status: ok
-family:
-  id: video
-  title: Video
+recording:
+  status: inactive
+  stoppedAt: "2026-06-23T20:00:00.000Z"
 files:
   count: 3
 videos:
   count: 1
-  video_files[1]:
-    - ./recording.webm
+video_files[1]:
+  - ./recording.webm
 other_artifacts:
   count: 2
-  other_artifact_files[2]:
-    - ./trace.zip
-    - ./network-har.json
+other_artifact_files[2]:
+  - ./trace.zip
+  - ./network.har
 last_files[3]:
   - ./recording.webm
   - ./trace.zip
-  - ./network-har.json
+  - ./network.har
 ```
 
 The wrapper validates video arguments before calling upstream. It updates sidecar

@@ -123,6 +123,7 @@ async function renderHome(deps: Required<CliDependencies>): Promise<CliResult> {
 		upstreamVersion: deps.upstreamVersion,
 		sessions,
 		video: reconciledVideo,
+		home: deps.env.HOME,
 	});
 	return { exitCode: 0, stdout: toToon(model) };
 }
