@@ -13,6 +13,7 @@
   ],
   "scripts": {
     "build": "tsup --config tsup.config.ts",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:unit": "vitest run src",
     "test:golden": "vitest run src/presenter",
