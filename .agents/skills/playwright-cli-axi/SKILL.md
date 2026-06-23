@@ -13,14 +13,29 @@ Use this skill when an agent needs to drive Playwright from a shell, inspect bro
 
 - Run `npx -y playwright-cli-axi` with no arguments for the content-first home view.
 - Stdout is TOON: data, help, and errors are structured on stdout; stderr is only diagnostic noise.
-- The wrapper preserves the upstream `@playwright/cli` command surface and forwards unknown commands.
+- The wrapper preserves the upstream `@playwright/cli` command surface and keeps a command-matrix drift test against upstream help metadata.
 - User-supplied `--json` is ignored because wrapper stdout remains TOON.
 - Browser-not-open and missing-browser failures become actionable structured errors.
+
+## Upstream command matrix
+
+- **Browser sessions**: `open`, `attach`, `close`, `detach`, `delete-data`, `list`, `close-all`, `kill-all` — Open, attach, close, detach, inspect, and clean browser sessions.
+- **Page interaction**: `goto`, `type`, `click`, `dblclick`, `fill`, `drag`, `drop`, `hover`, `select`, `upload`, `check`, `uncheck`, `snapshot`, `eval`, `dialog-accept`, `dialog-dismiss`, `resize` — Navigate pages, interact with elements, inspect snapshots, and run page evals.
+- **Navigation**: `go-back`, `go-forward`, `reload` — Control browser history and reload state.
+- **Keyboard**: `press`, `keydown`, `keyup` — Send keyboard input and key state transitions.
+- **Mouse**: `mousemove`, `mousedown`, `mouseup`, `mousewheel` — Send pointer movement, button, and wheel events.
+- **Artifacts**: `screenshot`, `pdf`, `request-headers`, `request-body`, `response-headers`, `response-body`, `tracing-start`, `tracing-stop` — Create or retrieve screenshots, PDFs, response/request payload files, and traces.
+- **Tabs**: `tab-list`, `tab-new`, `tab-close`, `tab-select` — List, create, close, and select browser tabs.
+- **Storage**: `state-load`, `state-save`, `cookie-list`, `cookie-get`, `cookie-set`, `cookie-delete`, `cookie-clear`, `localstorage-list`, `localstorage-get`, `localstorage-set`, `localstorage-delete`, `localstorage-clear`, `sessionstorage-list`, `sessionstorage-get`, `sessionstorage-set`, `sessionstorage-delete`, `sessionstorage-clear` — Save/load browser state and manage cookies, localStorage, and sessionStorage.
+- **Network**: `requests`, `request`, `route`, `route-list`, `unroute`, `network-state-set` — Inspect requests, mock routes, and toggle online/offline state.
+- **DevTools and diagnostics**: `console`, `run-code`, `show`, `pause-at`, `resume`, `step-over`, `generate-locator`, `highlight`, `tray` — Inspect console output, run Playwright code, show dashboards, debug, and highlight elements.
+- **Install and config**: `install`, `install-browser`, `config-print` — Install browsers/skills and inspect effective configuration.
+- **Video**: `video-start`, `video-stop`, `video-chapter`, `video-show-actions`, `video-hide-actions` — Record WebM videos and annotate action/chapter overlays.
 
 ## Video workflow
 
 - `npx -y playwright-cli-axi video-start` — Start recording the current browser session to an optional WebM file.
-- `npx -y playwright-cli-axi video-stop` — Stop recording and report any video files returned by upstream.
+- `npx -y playwright-cli-axi video-stop` — Stop recording and report typed video artifacts returned by upstream.
 - `npx -y playwright-cli-axi video-chapter` — Add a title card marker to the recording timeline.
 - `npx -y playwright-cli-axi video-show-actions` — Overlay subsequent action names and target highlights on the page.
 - `npx -y playwright-cli-axi video-hide-actions` — Stop overlaying action callouts on the page.

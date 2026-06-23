@@ -32,6 +32,20 @@ describe("toToon properties", () => {
 		);
 	});
 
+	it("preserves nested object fields inside generated array rows", () => {
+		fc.assert(
+			fc.property(fc.stringMatching(/^[A-Za-z0-9_./:-]{1,24}$/), (url) => {
+				const output = toToon({ result: [{ nested: { url }, id: 1 }] });
+
+				expect(output).toContain("nested:");
+				expect(output).toContain("url:");
+				expect(output).toContain(url);
+				expect(output).not.toContain("nested: null");
+			}),
+			propertyOptions,
+		);
+	});
+
 	it("canonicalizes non-finite numeric scalars and negative zero", () => {
 		expect(toToon(Number.NaN)).toBe("null");
 		expect(toToon(Number.POSITIVE_INFINITY)).toBe("null");

@@ -68,7 +68,6 @@ export async function runCli(
 	if (
 		command === "close" ||
 		command === "close-all" ||
-		command === "kill" ||
 		command === "kill-all" ||
 		command === "delete-data"
 	) {

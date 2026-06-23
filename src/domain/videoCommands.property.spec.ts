@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { parsedJson, parsedText, asyncPropertyOptions, propertyOptions, safeArgArb, videoSizeArb } from "../test/arbitraries.js";
 import type { UpstreamRun } from "../upstream/runner.js";
 import {
+	extractVideoArtifacts,
 	extractVideoLinks,
 	handleVideoCommand,
 	validateVideoCommand,
@@ -114,6 +115,24 @@ describe("videoCommands properties", () => {
 
 					const expectedJsonLinks = jsonEntries.filter((entry): entry is string => typeof entry === "string");
 					expect(extractVideoLinks(parsedJson({ [key]: jsonEntries }))).toEqual(expectedJsonLinks);
+				},
+			),
+			propertyOptions,
+		);
+	});
+
+	it("types video artifacts separately from related non-video artifacts", () => {
+		fc.assert(
+			fc.property(
+				fc.array(safeArgArb.map((path) => `${path}.webm`), { maxLength: 10 }),
+				fc.array(safeArgArb.map((path) => `${path}.zip`), { maxLength: 10 }),
+				(videos, traces) => {
+					const markdown = [...videos.map((path) => `[Video](${path})`), ...traces.map((path) => `[Trace](${path})`)].join("\n");
+					const artifacts = extractVideoArtifacts(parsedText(markdown));
+
+					expect(artifacts.videos).toEqual(videos);
+					expect(artifacts.otherArtifacts).toEqual(traces);
+					expect(artifacts.all).toEqual([...videos, ...traces]);
 				},
 			),
 			propertyOptions,

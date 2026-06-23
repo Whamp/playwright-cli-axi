@@ -1,6 +1,7 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 
+import { commandGroupFor, UPSTREAM_COMMANDS } from "../domain/upstreamCommands.js";
 import { parsedJson, parsedText, propertyOptions, safeArgArb } from "../test/arbitraries.js";
 import { toToon, type ToonValue } from "./toon.js";
 import { commandSuccessModel } from "./success.js";
@@ -13,6 +14,8 @@ function containsKey(value: ToonValue, key: string): boolean {
 	}
 	return false;
 }
+
+const upstreamCommandArb = fc.constantFrom(...UPSTREAM_COMMANDS);
 
 const jsonObjectArb = fc.dictionary(
 	fc.oneof(fc.constant("isError"), fc.stringMatching(/^[A-Za-z_][A-Za-z0-9_]{0,12}$/)),
@@ -30,6 +33,23 @@ describe("commandSuccessModel properties", () => {
 				expect(model.command).toBe("request");
 				expect(model.status).toBe("ok");
 				expect(containsKey(model.result as ToonValue, "isError")).toBe(false);
+				expect(output).not.toContain("\r");
+				expect(output.endsWith("\n")).toBe(false);
+			}),
+			propertyOptions,
+		);
+	});
+
+	it("adds command-family metadata for every upstream command with arbitrary JSON objects", () => {
+		fc.assert(
+			fc.property(upstreamCommandArb, jsonObjectArb, (command, value) => {
+				const model = commandSuccessModel(command, parsedJson(value));
+				const output = toToon(model);
+				const group = commandGroupFor(command)!;
+
+				expect(model.command).toBe(command);
+				expect(model.status).toBe("ok");
+				expect(output).toContain(`id: ${group.id}`);
 				expect(output).not.toContain("\r");
 				expect(output.endsWith("\n")).toBe(false);
 			}),

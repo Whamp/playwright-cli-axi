@@ -30,10 +30,10 @@ export async function handleVideoCommand(context: VideoCommandContext): Promise<
 
   if (command === 'video-start' && state.recording.status === 'active') {
     return {
-      exitCode: 1,
+      exitCode: 2,
       stdout: errorToStdout({
         kind: 'already_recording',
-        message: 'video recording is already active in wrapper sidecar state',
+        message: 'video recording is already active; run video-stop first',
         command: context.argv.join(' '),
         help: ['playwright-cli-axi video-stop']
       })
@@ -78,7 +78,6 @@ export function validateVideoCommand(command: VideoCommandName, args: string[], 
       if (unknown) return usage(`${unknown} is not supported by video-start`, command);
       if (positionals.length > 1) return usage('video-start accepts at most one filename', command);
       if (flags.size !== undefined && !/^\d+x\d+$/.test(flags.size)) return usage('--size must use <width>x<height>, for example 800x600', command);
-      if (state?.recording.status === 'active') return usage('video recording is already active; run video-stop first', command);
       return { ok: true, options: { positionals, flags } };
     }
     case 'video-stop': {
@@ -133,9 +132,9 @@ function mutateStateAfterSuccess(command: VideoCommandName, options: VideoOption
       next.lastFiles = [];
       return next;
     case 'video-stop': {
-      const files = extractVideoLinks(parsed);
+      const artifacts = extractVideoArtifacts(parsed);
       next.recording = { ...next.recording, status: 'inactive', stoppedAt: at };
-      next.lastFiles = files;
+      next.lastFiles = artifacts.all;
       return next;
     }
     case 'video-chapter':
@@ -157,6 +156,7 @@ function mutateStateAfterSuccess(command: VideoCommandName, options: VideoOption
 
 function videoSuccessModel(command: VideoCommandName, options: VideoOptions, state: VideoSidecarState, parsed: ReturnType<typeof parseUpstreamOutput>): ToonValue {
   if (command === 'video-stop') {
+    const artifacts = classifyVideoArtifacts(state.lastFiles);
     return {
       command,
       status: 'ok',
@@ -165,6 +165,16 @@ function videoSuccessModel(command: VideoCommandName, options: VideoOptions, sta
         count: state.lastFiles.length,
         ...(state.lastFiles.length === 0 ? { empty: noVideosRecorded(parsed) ? 'upstream reported no videos were recorded' : 'no video files reported by upstream' } : {})
       },
+      videos: {
+        count: artifacts.videos.length,
+        ...(artifacts.videos.length === 0 ? { empty: 'no WebM video artifacts reported by upstream' } : {})
+      },
+      ...(artifacts.videos.length > 0 ? { video_files: artifacts.videos } : {}),
+      other_artifacts: {
+        count: artifacts.otherArtifacts.length,
+        ...(artifacts.otherArtifacts.length === 0 ? { empty: 'no non-video artifacts reported by upstream' } : {})
+      },
+      ...(artifacts.otherArtifacts.length > 0 ? { other_artifact_files: artifacts.otherArtifacts } : {}),
       ...(state.lastFiles.length > 0 ? { last_files: state.lastFiles } : {})
     };
   }
@@ -187,17 +197,58 @@ function videoSuccessModel(command: VideoCommandName, options: VideoOptions, sta
   };
 }
 
+export interface VideoArtifacts {
+  videos: string[];
+  otherArtifacts: string[];
+  all: string[];
+}
+
 export function extractVideoLinks(parsed: ReturnType<typeof parseUpstreamOutput>): string[] {
+  return extractVideoArtifacts(parsed).all;
+}
+
+export function extractVideoArtifacts(parsed: ReturnType<typeof parseUpstreamOutput>): VideoArtifacts {
   const text = successText(parsed);
-  const links = [...text.matchAll(/\[[^\]]+\]\(([^)]+)\)/g)].map((match) => match[1]!).filter(Boolean);
-  if (links.length > 0) return links;
+  const markdown = [...text.matchAll(/\[([^\]]+)\]\(([^)]+)\)/g)]
+    .map((match) => ({ label: match[1] ?? '', path: match[2] ?? '' }))
+    .filter((entry) => entry.path.length > 0);
+  if (markdown.length > 0) return classifyLabeledArtifacts(markdown);
   if (parsed.kind === 'json' && isObject(parsed.value)) {
-    for (const key of ['files', 'videos', 'lastFiles']) {
-      const value = parsed.value[key];
-      if (Array.isArray(value)) return value.filter((entry): entry is string => typeof entry === 'string');
+    const videos = stringArray(parsed.value.videos);
+    if (videos.length > 0) {
+      const otherArtifacts = [...stringArray(parsed.value.files), ...stringArray(parsed.value.lastFiles)].filter((path) => !videos.includes(path));
+      return { videos, otherArtifacts, all: [...videos, ...otherArtifacts] };
+    }
+    for (const key of ['files', 'lastFiles']) {
+      const value = stringArray(parsed.value[key]);
+      if (value.length > 0) return classifyVideoArtifacts(value);
     }
   }
-  return [];
+  return { videos: [], otherArtifacts: [], all: [] };
+}
+
+function classifyLabeledArtifacts(entries: { label: string; path: string }[]): VideoArtifacts {
+  const videos: string[] = [];
+  const otherArtifacts: string[] = [];
+  for (const entry of entries) {
+    if (isVideoArtifact(entry.path) || /video/i.test(entry.label)) videos.push(entry.path);
+    else otherArtifacts.push(entry.path);
+  }
+  return { videos, otherArtifacts, all: [...videos, ...otherArtifacts] };
+}
+
+function classifyVideoArtifacts(paths: string[]): VideoArtifacts {
+  const videos = paths.filter(isVideoArtifact);
+  const otherArtifacts = paths.filter((path) => !isVideoArtifact(path));
+  return { videos, otherArtifacts, all: [...videos, ...otherArtifacts] };
+}
+
+function isVideoArtifact(path: string): boolean {
+  return path.toLowerCase().split('?')[0]?.endsWith('.webm') === true;
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : [];
 }
 
 function noVideosRecorded(parsed: ReturnType<typeof parseUpstreamOutput>): boolean {

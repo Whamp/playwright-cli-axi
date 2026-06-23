@@ -1,4 +1,5 @@
 import { CATALOG } from "../content/catalog.js";
+import { commandMatrixRows } from "../domain/upstreamCommands.js";
 import { type ToonValue, table, toToon } from "./toon.js";
 
 interface HelpDefinition {
@@ -131,6 +132,7 @@ export function helpToStdout(command?: string): string {
 		command: CATALOG.binary,
 		summary: CATALOG.description,
 		usage: "playwright-cli-axi [command] [args]",
+		command_groups: table(["group", "commands", "summary"], commandMatrixRows()),
 		video_commands: Object.entries(CATALOG.videoCommands).map(
 			([name, summary]) => `${name}: ${summary}`,
 		),

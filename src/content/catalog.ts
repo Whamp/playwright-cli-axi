@@ -1,3 +1,5 @@
+import { COMMAND_GROUPS } from '../domain/upstreamCommands.js';
+
 export const CATALOG = {
   binary: 'playwright-cli-axi',
   description: 'AXI-friendly Playwright browser control with TOON output and video state',
@@ -11,16 +13,20 @@ export const CATALOG = {
   ] as string[],
   videoCommands: {
     'video-start': 'Start recording the current browser session to an optional WebM file.',
-    'video-stop': 'Stop recording and report any video files returned by upstream.',
+    'video-stop': 'Stop recording and report typed video artifacts returned by upstream.',
     'video-chapter': 'Add a title card marker to the recording timeline.',
     'video-show-actions': 'Overlay subsequent action names and target highlights on the page.',
     'video-hide-actions': 'Stop overlaying action callouts on the page.'
-  }
+  },
+  commandGroups: COMMAND_GROUPS
 };
 
 export function renderSkillMarkdown(): string {
   const commandLines = Object.entries(CATALOG.videoCommands)
     .map(([name, summary]) => `- \`${CATALOG.npxBinary} ${name}\` — ${summary}`)
+    .join('\n');
+  const commandMatrix = CATALOG.commandGroups
+    .map((group) => `- **${group.title}**: ${group.commands.map((command) => `\`${command}\``).join(', ')} — ${group.summary}`)
     .join('\n');
   const examples = [
     `${CATALOG.npxBinary}`,
@@ -47,9 +53,13 @@ Use this skill when an agent needs to drive Playwright from a shell, inspect bro
 
 - Run \`${CATALOG.npxBinary}\` with no arguments for the content-first home view.
 - Stdout is TOON: data, help, and errors are structured on stdout; stderr is only diagnostic noise.
-- The wrapper preserves the upstream \`@playwright/cli\` command surface and forwards unknown commands.
+- The wrapper preserves the upstream \`@playwright/cli\` command surface and keeps a command-matrix drift test against upstream help metadata.
 - User-supplied \`--json\` is ignored because wrapper stdout remains TOON.
 - Browser-not-open and missing-browser failures become actionable structured errors.
+
+## Upstream command matrix
+
+${commandMatrix}
 
 ## Video workflow
 

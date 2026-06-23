@@ -57,9 +57,14 @@ function encodeNamed(key: string, value: ToonValue, indent: number): string[] {
 					continue;
 				}
 				const [firstKey, firstValue] = entries[0]!;
-				lines.push(
-					`${" ".repeat(indent + 2)}- ${firstKey}: ${formatScalar(scalarOrNull(firstValue as ToonValue))}`,
-				);
+				if (isScalar(firstValue as ToonValue)) {
+					lines.push(
+						`${" ".repeat(indent + 2)}- ${firstKey}: ${formatScalar(scalarOrNull(firstValue as ToonValue))}`,
+					);
+				} else {
+					lines.push(`${" ".repeat(indent + 2)}- ${firstKey}:`);
+					lines.push(...encodeNested(firstValue as ToonValue, indent + 4));
+				}
 				for (const [childKey, childValue] of entries.slice(1)) {
 					lines.push(...encodeNamed(childKey, childValue, indent + 4));
 				}
@@ -84,6 +89,27 @@ function encodeNamed(key: string, value: ToonValue, indent: number): string[] {
 	return [
 		`${prefix}${key}: ${formatScalar(value as string | number | boolean | null)}`,
 	];
+}
+
+function encodeNested(value: ToonValue, indent: number): string[] {
+	if (Array.isArray(value)) return encodeNamed("items", value, indent);
+	if (isPlainObject(value)) {
+		const entries = Object.entries(value);
+		if (entries.length === 0) return [`${" ".repeat(indent)}{}`];
+		return entries.flatMap(([childKey, childValue]) =>
+			encodeNamed(childKey, childValue, indent),
+		);
+	}
+	return [`${" ".repeat(indent)}${formatScalar(scalarOrNull(value))}`];
+}
+
+function isScalar(value: ToonValue): boolean {
+	return (
+		value === null ||
+		typeof value === "string" ||
+		typeof value === "number" ||
+		typeof value === "boolean"
+	);
 }
 
 function formatScalar(value: string | number | boolean | null): string {

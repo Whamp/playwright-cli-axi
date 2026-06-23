@@ -4,9 +4,11 @@
 It preserves the upstream command surface, injects upstream JSON where supported,
 and reformats stdout as compact TOON for agent use.
 
-Primary goal: make Playwright browser control and video recording reliable from an
+Primary goal: make the full upstream Playwright CLI surface reliable from an
 agent shell without leaking progress chatter, stack traces, or ambiguous empty
-output into stdout.
+output into stdout. Video remains first-class, but storage, network, tabs,
+artifacts, DevTools, install, and session-admin commands also get command-aware
+AXI presentation.
 
 ## Install and build
 
@@ -49,12 +51,11 @@ next[5]:
 The wrapper forwards all upstream `@playwright/cli` commands. Key commands:
 
 - `playwright-cli-axi` — Show home view with browser and video state
-- `playwright-cli-axi list [--all]` — List open browsers with TOON formatting
+- `playwright-cli-axi list [--all]` — List open browsers, attachable servers, and channel sessions with TOON formatting
 - `playwright-cli-axi open <url>` — Open a browser session
 - `playwright-cli-axi close` — Close the current browser
 - `playwright-cli-axi close-all` — Close all browsers
-- `playwright-cli-axi kill` — Kill browser processes
-- `playwright-cli-axi kill-all` — Kill all browser processes
+- `playwright-cli-axi kill-all` — Kill all browser daemon processes
 - `playwright-cli-axi delete-data` — Delete browser data
 - `playwright-cli-axi install-browser chrome-for-testing` — Install the Chrome browser
 - `playwright-cli-axi --help` — Show help for the wrapper
@@ -68,15 +69,39 @@ except for commands like `install-browser` that reject JSON mode.
 The wrapper keeps internal data as JSON and routes stdout rendering through
 presenter modules, which ultimately encode via `src/presenter/toon.ts`.
 Unknown commands are forwarded to `@playwright/cli` rather than reimplemented.
-Known high-value cases get AXI-specific formatting through dedicated
-presenters:
+Known command families get AXI-specific metadata, counts, artifact summaries,
+and stable empty states while preserving upstream result data.
+
+Dedicated presenters cover:
 
 - no-args home view
-- `--help` and video command help
-- `list`, `close`, and `close-all` empty states
-- upstream JSON errors such as browser-not-open
+- root `--help`, upstream help previews, and video command help
+- whole-surface command matrix generated from `src/domain/upstreamCommands.ts`
+- `list --all` browser/server/channel-session inventory
+- `close`, `close-all`, `detach`, `delete-data`, and `kill-all` session-admin results
+- storage, network, tabs, artifacts, DevTools, install/config, page, keyboard, mouse, and navigation command families
+- upstream JSON errors such as browser-not-open and unknown-command/unknown-option usage errors
 - stderr-only failures such as missing Chrome installations
-- video commands and sidecar state
+- video commands, typed video artifacts, and sidecar state
+
+## Command matrix
+
+Run `playwright-cli-axi --help` for the live TOON command matrix. Coverage is
+also checked against upstream `help.json` so newly added upstream commands fail
+tests until they are assigned to a wrapper command family.
+
+| Family | Commands |
+| --- | --- |
+| Browser sessions | `open`, `attach`, `close`, `detach`, `delete-data`, `list`, `close-all`, `kill-all` |
+| Page interaction | `goto`, `type`, `click`, `dblclick`, `fill`, `drag`, `drop`, `hover`, `select`, `upload`, `check`, `uncheck`, `snapshot`, `eval`, `dialog-accept`, `dialog-dismiss`, `resize` |
+| Navigation / input | `go-back`, `go-forward`, `reload`, `press`, `keydown`, `keyup`, `mousemove`, `mousedown`, `mouseup`, `mousewheel` |
+| Artifacts | `screenshot`, `pdf`, `request-headers`, `request-body`, `response-headers`, `response-body`, `tracing-start`, `tracing-stop` |
+| Tabs | `tab-list`, `tab-new`, `tab-close`, `tab-select` |
+| Storage | `state-load`, `state-save`, cookies, localStorage, and sessionStorage CRUD commands |
+| Network | `requests`, `request`, `route`, `route-list`, `unroute`, `network-state-set` |
+| DevTools / diagnostics | `console`, `run-code`, `show`, `pause-at`, `resume`, `step-over`, `generate-locator`, `highlight`, `tray` |
+| Install / config | `install`, `install-browser`, `config-print` |
+| Video | `video-start`, `video-stop`, `video-chapter`, `video-show-actions`, `video-hide-actions` |
 
 ## Video support
 
@@ -94,7 +119,7 @@ playwright-cli-axi video-stop
 
 - `video-start [filename]` — Start recording to an optional WebM file path
   - `--size <width>x<height>` — Video frame size (default: fit 800x800)
-- `video-stop` — Stop recording and report returned video files
+- `video-stop` — Stop recording and report typed `video_files` separately from other artifacts
 - `video-chapter <title>` — Add a chapter marker to the recording timeline
   - `--description <text>` — Optional chapter card description
   - `--duration <ms>` — Milliseconds to show the chapter card (default: upstream default)
@@ -141,9 +166,10 @@ Sidecar facts include:
 The sidecar is last-known wrapper state, not authoritative upstream state. The
 home view reconciles active sidecar recordings against `list --all`; if no live
 browser is present it marks the state `stale`. Successful `close`, `close-all`,
-`kill`, or `delete-data` while sidecar recording is active emits a warning and
-marks the recording `abandoned` because closing without `video-stop` may lose the
-file.
+`kill-all`, or `delete-data` while sidecar recording is active emits a warning
+and marks the recording `abandoned` because closing without `video-stop` may lose
+the file. The home view includes recent sidecar details such as requested
+file/size, timestamps, and recent reported files when they exist.
 
 ## Error handling
 
@@ -190,8 +216,9 @@ npm run generate:skill && npm run check:skill
 ```
 
 The test suite combines example-based Vitest specs with fast-check property/model
-specs for parsing, argv handling, TOON rendering, session normalization, video
-sidecar state, video command state transitions, and error/help/home presenters.
+specs for parsing, argv handling, TOON rendering, whole-surface command drift,
+session/list/close normalization, command-family presentation, video sidecar
+state, video command state transitions, and error/help/home presenters.
 
 ### Property-based testing
 
@@ -277,4 +304,5 @@ For internal modules with clear invariants (parsers, normalizers, state machines
 add property-based tests in parallel with example-based tests to verify behavior
 across generated inputs.
 
-Do not commit or push from this task; leave the working tree ready for review.
+Before shipping, also run the local `no-mistakes` gate with remote-facing steps
+skipped if needed.

@@ -30,6 +30,8 @@ describe("homeModel properties", () => {
 							empty: browsers.length === 0 ? "no open browsers" : undefined,
 							rows: browsers as BrowserRow[],
 						},
+						servers: { count: 0, empty: "no attachable browser servers", rows: [] },
+						channelSessions: { count: 0, empty: "no channel sessions", rows: [] },
 					};
 					const video = {
 						...defaultVideoState("/repo", "key", "default"),
@@ -53,6 +55,8 @@ describe("homeModel properties", () => {
 						...(browsers.length === 0 ? { empty: "no open browsers" } : {}),
 					});
 					expect("browser_rows" in model).toBe(browsers.length > 0);
+					expect(model.servers).toEqual({ count: 0, empty: "no attachable browser servers" });
+					expect(model.channel_sessions).toEqual({ count: 0, empty: "no channel sessions" });
 					if (browsers.length > 0) {
 						const browserRows = model.browser_rows as ToonTable;
 						expect(browserRows.rows).toHaveLength(browsers.length);

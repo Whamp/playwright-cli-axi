@@ -59,4 +59,37 @@ describe("normalizeUpstreamError properties", () => {
 			propertyOptions,
 		);
 	});
+
+	it("uses the parsed command name for usage help when global flags precede the command", () => {
+		fc.assert(
+			fc.property(safeLineArb, (session) => {
+				const stderr = "unknown option --bad";
+				const parsed = parseUpstreamOutput("", stderr, 1);
+
+				const result = normalizeUpstreamError(["--session", session, "goto", "--bad"], failedRun(stderr), parsed);
+
+				expect(result.exitCode).toBe(2);
+				expect(result.stdout).toContain("kind: usage");
+				expect(result.stdout).toContain("playwright-cli-axi goto --help");
+				expect(result.stdout).not.toContain("playwright-cli-axi --session --help");
+			}),
+			propertyOptions,
+		);
+	});
+
+	it("classifies unknown commands as usage errors with root help", () => {
+		fc.assert(
+			fc.property(safeLineArb, (command) => {
+				const stderr = `Unknown command: ${command}`;
+				const parsed = parseUpstreamOutput("playwright-cli [command]", stderr, 1);
+
+				const result = normalizeUpstreamError([command], failedRun(stderr), parsed);
+
+				expect(result.exitCode).toBe(2);
+				expect(result.stdout).toContain("kind: usage");
+				expect(result.stdout).toContain("playwright-cli-axi --help");
+			}),
+			propertyOptions,
+		);
+	});
 });

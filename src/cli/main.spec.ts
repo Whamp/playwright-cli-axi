@@ -30,21 +30,43 @@ describe('runCli', () => {
     expect(result.stdout).not.toMatch(/Usage:/);
   });
 
-  it('should format upstream list JSON as compact TOON with explicit empty state', async () => {
+  it('should format upstream list JSON as compact TOON with full list --all inventory', async () => {
     // Arrange
     const harness = await createHarness([
-      { stdout: '{"browsers":[]}' }
+      { stdout: '{"browsers":[],"servers":[{"title":"debug","browser":{"browserName":"chromium","userDataDir":"/tmp/profile"},"playwrightVersion":"1.2.3","workspaceDir":"/repo"}],"channelSessions":[{"channel":"chrome","userDataDir":"/tmp/chrome","extensionInstalled":false,"endpoint":"http://127.0.0.1:9222"}]}' }
     ]);
 
     // Act
-    const result = await harness.run(['list', '--json']);
+    const result = await harness.run(['list', '--all', '--json']);
 
     // Assert
     expect(result.exitCode).toBe(0);
-    expect(harness.upstreamRuns).toEqual([['list']]);
+    expect(harness.upstreamRuns).toEqual([['list', '--all']]);
     expect(result.stdout).toContain('command: list');
     expect(result.stdout).toContain('browsers:\n  count: 0\n  empty: no open browsers');
+    expect(result.stdout).toContain('servers:\n  count: 1');
+    expect(result.stdout).toContain('server_rows[1]{title,browser,version,dataDir,workspace}:');
+    expect(result.stdout).toContain('debug,chromium,1.2.3,/tmp/profile,/repo');
+    expect(result.stdout).toContain('channel_sessions:\n  count: 1');
+    expect(result.stdout).toContain('chrome,/tmp/chrome,no,yes');
     expect(result.stdout).not.toContain('{"browsers"');
+  });
+
+  it('should preserve upstream close session status', async () => {
+    // Arrange
+    const harness = await createHarness([
+      { stdout: '{"session":"default","status":"not-open"}' }
+    ]);
+
+    // Act
+    const result = await harness.run(['close']);
+
+    // Assert
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('command: close');
+    expect(result.stdout).toContain('session: default');
+    expect(result.stdout).toContain('close:\n  status: not-open');
+    expect(result.stdout).not.toContain('no browsers were closed');
   });
 
   it('should format upstream close-all JSON as compact TOON with explicit empty state', async () => {
@@ -194,6 +216,7 @@ describe('runCli', () => {
     // Assert
     expect(result.exitCode).toBe(2);
     expect(harness.upstreamRuns).toEqual([['video-start', './first.webm']]);
+    expect(result.stdout).toContain('kind: already_recording');
     expect(result.stdout).toContain('video recording is already active; run video-stop first');
     const state = await harness.readState();
     expect(state.recording.status).toBe('active');
@@ -215,8 +238,10 @@ describe('runCli', () => {
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('command: video-stop');
     expect(result.stdout).toContain('files:\n  count: 2');
-    expect(result.stdout).toContain('- ./out.webm');
-    expect(result.stdout).toContain('- ./trace.zip');
+    expect(result.stdout).toContain('videos:\n  count: 1');
+    expect(result.stdout).toContain('video_files[1]:\n  - ./out.webm');
+    expect(result.stdout).toContain('other_artifacts:\n  count: 1');
+    expect(result.stdout).toContain('other_artifact_files[1]:\n  - ./trace.zip');
 
     const state = await harness.readState();
     expect(state.recording.status).toBe('inactive');
@@ -331,6 +356,24 @@ describe('runCli', () => {
     const state = await harness.readState();
     expect(state.scope.session).toBe('demo');
     expect(state.recording.status).toBe('abandoned');
+  });
+
+  it('should render root help with a whole-surface command matrix', async () => {
+    // Arrange
+    const harness = await createHarness([]);
+
+    // Act
+    const result = await harness.run(['--help']);
+
+    // Assert
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('command_groups[');
+    expect(result.stdout).toContain('Storage');
+    expect(result.stdout).toContain('cookie-list');
+    expect(result.stdout).toContain('Network');
+    expect(result.stdout).toContain('route-list');
+    expect(result.stdout).toContain('Video');
+    expect(result.stdout).toContain('video-start');
   });
 
   it('should render concise structured help for video commands', async () => {
