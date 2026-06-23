@@ -71,6 +71,25 @@ export function helpToStdout(command?: string): string {
   });
 }
 
+export function upstreamHelpPreviewToStdout(command: string, text: string): string {
+  return toToon(upstreamHelpPreviewModel(command, text));
+}
+
+function upstreamHelpPreviewModel(command: string, text: string): ToonValue {
+  const lines = text.split('\n').map((line) => line.trimEnd()).filter((line) => line.length > 0);
+  const preview = lines.slice(0, 40);
+  return {
+    command,
+    help: {
+      source: '@playwright/cli',
+      bytes: text.length,
+      lines: preview.length,
+      truncated: lines.length > preview.length
+    },
+    lines: preview
+  };
+}
+
 function helpModel(definition: HelpDefinition): ToonValue {
   return {
     command: definition.command,
