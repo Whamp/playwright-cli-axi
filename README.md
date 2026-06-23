@@ -138,18 +138,18 @@ Run `playwright-cli-axi --help` for the live TOON command matrix. Coverage is
 also checked against upstream `help.json` so newly added upstream commands fail
 tests until they are assigned to a wrapper command family.
 
-| Family | Commands |
-| --- | --- |
-| Browser sessions | `open`, `attach`, `close`, `detach`, `delete-data`, `list`, `close-all`, `kill-all` |
-| Page interaction | `goto`, `type`, `click`, `dblclick`, `fill`, `drag`, `drop`, `hover`, `select`, `upload`, `check`, `uncheck`, `snapshot`, `eval`, `dialog-accept`, `dialog-dismiss`, `resize` |
-| Navigation / input | `go-back`, `go-forward`, `reload`, `press`, `keydown`, `keyup`, `mousemove`, `mousedown`, `mouseup`, `mousewheel` |
-| Artifacts | `screenshot`, `pdf`, `request-headers`, `request-body`, `response-headers`, `response-body`, `tracing-start`, `tracing-stop` |
-| Tabs | `tab-list`, `tab-new`, `tab-close`, `tab-select` |
-| Storage | `state-load`, `state-save`, cookies, localStorage, and sessionStorage CRUD commands |
-| Network | `requests`, `request`, `route`, `route-list`, `unroute`, `network-state-set` |
-| DevTools / diagnostics | `console`, `run-code`, `show`, `pause-at`, `resume`, `step-over`, `generate-locator`, `highlight`, `tray` |
-| Install / config | `install`, `install-browser`, `config-print` |
-| Video | `video-start`, `video-stop`, `video-chapter`, `video-show-actions`, `video-hide-actions` |
+| Family                 | Commands                                                                                                                                                                      |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Browser sessions       | `open`, `attach`, `close`, `detach`, `delete-data`, `list`, `close-all`, `kill-all`                                                                                           |
+| Page interaction       | `goto`, `type`, `click`, `dblclick`, `fill`, `drag`, `drop`, `hover`, `select`, `upload`, `check`, `uncheck`, `snapshot`, `eval`, `dialog-accept`, `dialog-dismiss`, `resize` |
+| Navigation / input     | `go-back`, `go-forward`, `reload`, `press`, `keydown`, `keyup`, `mousemove`, `mousedown`, `mouseup`, `mousewheel`                                                             |
+| Artifacts              | `screenshot`, `pdf`, `request-headers`, `request-body`, `response-headers`, `response-body`, `tracing-start`, `tracing-stop`                                                  |
+| Tabs                   | `tab-list`, `tab-new`, `tab-close`, `tab-select`                                                                                                                              |
+| Storage                | `state-load`, `state-save`, cookies, localStorage, and sessionStorage CRUD commands                                                                                           |
+| Network                | `requests`, `request`, `route`, `route-list`, `unroute`, `network-state-set`                                                                                                  |
+| DevTools / diagnostics | `console`, `run-code`, `show`, `pause-at`, `resume`, `step-over`, `generate-locator`, `highlight`, `tray`                                                                     |
+| Install / config       | `install`, `install-browser`, `config-print`                                                                                                                                  |
+| Video                  | `video-start`, `video-stop`, `video-chapter`, `video-show-actions`, `video-hide-actions`                                                                                      |
 
 ## Video support
 
