@@ -90,4 +90,11 @@ describe("session normalization properties", () => {
 			propertyOptions,
 		);
 	});
+
+	it("falls back for hostile non-scalar closed entries", () => {
+		expect(normalizeClosed({ closed: [[{ toString: null }]] })).toMatchObject({
+			count: 1,
+			rows: [{ id: "1", status: "closed" }],
+		});
+	});
 });

@@ -35,7 +35,7 @@ export function normalizeSessions(value: unknown): SessionSummary {
 export function normalizeClosed(value: unknown): { count: number; empty?: string; rows: { id: string; status: string }[] } {
   if (!isObject(value) || !Array.isArray(value.closed)) return { count: 0, empty: 'no browsers were closed', rows: [] };
   const rows = value.closed.map((entry, index) => ({
-    id: isObject(entry) ? stringField(entry, ['id', 'name'], String(index + 1)) : String(entry),
+    id: isObject(entry) ? stringField(entry, ['id', 'name'], String(index + 1)) : scalarString(entry, String(index + 1)),
     status: 'closed'
   }));
   return { count: rows.length, empty: rows.length === 0 ? 'no browsers were closed' : undefined, rows };
@@ -51,5 +51,11 @@ function stringField(object: Record<string, unknown>, keys: string[], fallback: 
     if (typeof value === 'string' && value.length > 0) return value;
     if (typeof value === 'number') return String(value);
   }
+  return fallback;
+}
+
+function scalarString(value: unknown, fallback: string): string {
+  if (typeof value === 'string' && value.length > 0) return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
   return fallback;
 }
