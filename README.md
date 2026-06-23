@@ -44,6 +44,25 @@ next[5]:
   - playwright-cli-axi list --all
 ```
 
+## Common commands
+
+The wrapper forwards all upstream `@playwright/cli` commands. Key commands:
+
+- `playwright-cli-axi` — Show home view with browser and video state
+- `playwright-cli-axi list [--all]` — List open browsers with TOON formatting
+- `playwright-cli-axi open <url>` — Open a browser session
+- `playwright-cli-axi close` — Close the current browser
+- `playwright-cli-axi close-all` — Close all browsers
+- `playwright-cli-axi kill` — Kill browser processes
+- `playwright-cli-axi kill-all` — Kill all browser processes
+- `playwright-cli-axi delete-data` — Delete browser data
+- `playwright-cli-axi install-browser chrome-for-testing` — Install the Chrome browser
+- `playwright-cli-axi --help` — Show help for the wrapper
+- `playwright-cli-axi <command> --help` — Show help for specific commands
+
+The wrapper injects `--json` into upstream commands and reformats output as TOON,
+except for commands like `install-browser` that reject JSON mode.
+
 ## Thin-wrapper design
 
 The wrapper keeps internal data as JSON and uses `src/presenter/toon.ts` as the
@@ -69,8 +88,35 @@ playwright-cli-axi video-hide-actions
 playwright-cli-axi video-stop
 ```
 
+### Video command flags
+
+- `video-start [filename]` — Start recording to an optional WebM file path
+  - `--size <width>x<height>` — Video frame size (default: fit 800x800)
+- `video-stop` — Stop recording and report returned video files
+- `video-chapter <title>` — Add a chapter marker to the recording timeline
+  - `--description <text>` — Optional chapter card description
+  - `--duration <ms>` — Milliseconds to show the chapter card (default: upstream default)
+- `video-show-actions` — Overlay action names and target highlights on the page
+  - `--duration <ms>` — Milliseconds each annotation remains visible (default: 500)
+  - `--position top-left|top|top-right|bottom-left|bottom|bottom-right` — Where to place action titles (default: top-right)
+  - `--cursor pointer|none` — Cursor decoration (default: pointer)
+- `video-hide-actions` — Stop overlaying action callouts on the page
+
 The wrapper validates video arguments before calling upstream. It updates sidecar
 state only after observed upstream success.
+
+### Session scoping
+
+Video state is scoped to the current working directory and optional session name.
+Use the `--session <name>` or `-s <name>` flag to isolate recordings for different
+workflows within the same directory:
+
+```sh
+playwright-cli-axi video-start --session demo ./demo.webm
+playwright-cli-axi video-stop --session demo
+```
+
+Each session has its own sidecar file under `${XDG_STATE_HOME:-~/.local/state}/playwright-cli-axi/`.
 
 ### Sidecar state
 
@@ -96,6 +142,26 @@ browser is present it marks the state `stale`. Successful `close`, `close-all`,
 `kill`, or `delete-data` while sidecar recording is active emits a warning and
 marks the recording `abandoned` because closing without `video-stop` may lose the
 file.
+
+## Error handling
+
+All errors print structured TOON to stdout with actionable help suggestions:
+
+- `usage` — Invalid command usage or flags (exit code 2)
+- `browser_not_open` — Browser must be opened first (exit code 1)
+- `missing_browser` — Chrome installation is missing (exit code 1)
+- `upstream_error` — Upstream command failed (exit code 1)
+- `already_recording` — Video recording is already active (exit code 2)
+
+Example error output:
+
+```toon
+error:
+  kind: browser_not_open
+  message: "The browser 'default' is not open, please run open first"
+help[1]:
+  playwright-cli-axi open [url]
+```
 
 ## Browser prerequisite
 
@@ -138,6 +204,12 @@ The smoke script opens a temporary browser/session, starts WebM recording, shows
 action overlays, navigates, adds a chapter, hides overlays, stops recording,
 closes the browser, checks that the WebM exists and is non-empty, and uses
 `ffprobe` for container/duration details when available.
+
+## Environment variables
+
+- `XDG_STATE_HOME` — Override the base directory for sidecar state files (default: `~/.local/state`)
+- `PLAYWRIGHT_MCP_EXECUTABLE_PATH` — Path to a system Chromium browser for testing (e.g., `/usr/bin/chromium`)
+- `NO_COLOR` — Set to `1` to disable colored output from upstream (always set by the wrapper)
 
 ## Generated skill
 
