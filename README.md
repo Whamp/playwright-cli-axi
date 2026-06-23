@@ -189,9 +189,33 @@ npm run build
 npm run generate:skill && npm run check:skill
 ```
 
-The test suite includes example-based Vitest specs and fast-check property/model
+The test suite combines example-based Vitest specs with fast-check property/model
 specs for parsing, argv handling, TOON rendering, session normalization, video
 sidecar state, video command state transitions, and error/help/home presenters.
+
+### Property-based testing
+
+Property-based tests use the fast-check framework to generate hundreds of random
+inputs and verify invariants that must hold for all valid inputs. This complements
+example-based tests by finding edge cases that manual test examples miss.
+
+The project uses custom arbitraries in `src/test/arbitraries.ts` to generate:
+
+- Safe strings for keys, args, and lines (length-limited alphanumerics)
+- JSON values for upstream parsing tests
+- TOON values and tables for rendering invariants
+- Video state shapes and recording status enums
+
+Run only property-based tests with `npm run test:prop`. When adding new features,
+consider writing property tests for:
+
+- **Parsing/formatting roundtrips** — data survives encode/decode cycles
+- **State invariants** — counts match arrays, enums stay valid
+- **Idempotency** — running twice produces the same result
+- **State machine consistency** — valid transitions maintain invariants
+
+Prefer example-based tests for user-visible flows and property-based tests for
+internal invariants and data transformations.
 
 Manual AXI smoke without a browser:
 
@@ -240,5 +264,9 @@ Use TDD vertical slices:
 3. implement the smallest deep-module change
 4. rerun the focused test
 5. rerun `npm test`, `npm run build`, and `npm run check:skill`
+
+For internal modules with clear invariants (parsers, normalizers, state machines),
+add property-based tests in parallel with example-based tests to verify behavior
+across generated inputs.
 
 Do not commit or push from this task; leave the working tree ready for review.
