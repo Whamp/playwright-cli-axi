@@ -65,9 +65,10 @@ except for commands like `install-browser` that reject JSON mode.
 
 ## Thin-wrapper design
 
-The wrapper keeps internal data as JSON and uses `src/presenter/toon.ts` as the
-only stdout boundary. Unknown commands are forwarded to `@playwright/cli` rather
-than reimplemented. Known high-value cases get AXI-specific formatting:
+The wrapper keeps internal data as JSON and uses presenter modules behind
+`src/presenter/toon.ts` as stdout boundaries. Unknown commands are forwarded
+to `@playwright/cli` rather than reimplemented. Known high-value cases get
+AXI-specific formatting through dedicated presenters:
 
 - no-args home view
 - `--help` and video command help
