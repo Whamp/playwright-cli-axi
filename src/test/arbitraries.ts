@@ -1,5 +1,6 @@
 import fc, { type Arbitrary } from "fast-check";
 
+import type { RecordingStatus } from "../domain/videoState.js";
 import { table, type ToonTable, type ToonValue } from "../presenter/toon.js";
 
 export const propertyOptions = { numRuns: 100 } as const;
@@ -8,10 +9,9 @@ export const asyncPropertyOptions = { numRuns: 50 } as const;
 export const safeKeyArb = fc.stringMatching(/^[A-Za-z_][A-Za-z0-9_]{0,12}$/);
 export const safeArgArb = fc.stringMatching(/^[A-Za-z0-9_./:]{1,24}$/);
 export const safeLineArb = fc.stringMatching(/^[A-Za-z0-9_./: -]{1,60}$/);
-export const flagValueArb = fc.oneof(
-	fc.constant(""),
-	fc.stringMatching(/^[A-Za-z0-9_./: ][A-Za-z0-9_./: -]{0,23}$/),
-);
+export const videoSizeArb = fc.stringMatching(/^[1-9][0-9]{0,3}x[1-9][0-9]{0,3}$/);
+export const recordingStatusArb = fc.constantFrom<RecordingStatus>("active", "inactive", "unknown", "stale", "abandoned");
+export const overlayStatusArb = fc.constantFrom("enabled" as const, "disabled" as const, "unknown" as const);
 
 export const jsonValueArb = fc.jsonValue();
 

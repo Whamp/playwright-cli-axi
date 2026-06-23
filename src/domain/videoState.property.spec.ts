@@ -5,24 +5,28 @@ import { join } from "node:path";
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 
-import { asyncPropertyOptions, propertyOptions, safeArgArb } from "../test/arbitraries.js";
+import {
+	asyncPropertyOptions,
+	overlayStatusArb,
+	propertyOptions,
+	recordingStatusArb,
+	safeArgArb,
+	videoSizeArb,
+} from "../test/arbitraries.js";
 import {
 	createVideoStore,
 	defaultVideoState,
 	reconcileVideoState,
-	type RecordingStatus,
 	type VideoSidecarState,
 } from "./videoState.js";
 
-const recordingStatusArb = fc.constantFrom<RecordingStatus>("active", "inactive", "unknown", "stale", "abandoned");
-const overlayStatusArb = fc.constantFrom("enabled", "disabled", "unknown" as const);
 const isoTextArb = fc.stringMatching(/^2026-06-23T20:[0-5][0-9]:[0-5][0-9].000Z$/);
 
 const statePayloadArb = fc.record({
 	recording: fc.record({
 		status: recordingStatusArb,
 		requestedFile: safeArgArb,
-		requestedSize: fc.stringMatching(/^[1-9][0-9]{0,3}x[1-9][0-9]{0,3}$/),
+		requestedSize: videoSizeArb,
 		startedAt: isoTextArb,
 		stoppedAt: isoTextArb,
 	}),
@@ -81,9 +85,9 @@ describe("videoState properties", () => {
 
 					const records = await left.loadAllForCwd();
 
-					expect(records.every((record) => record.state.scope.cwd === "/left")).toBe(true);
-					expect(records.map((record) => record.state.scope.session)).toContain(leftSession);
-					expect(records.map((record) => record.state.scope.session)).not.toContain(rightSession);
+					expect(records).toHaveLength(1);
+					expect(records[0]?.state.scope).toMatchObject({ cwd: "/left", session: leftSession });
+					expect(records.some((record) => record.state.scope.cwd === "/right")).toBe(false);
 				} finally {
 					await rm(stateHome, { recursive: true, force: true });
 				}

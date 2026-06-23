@@ -1,9 +1,9 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 
-import { propertyOptions, safeArgArb } from "../test/arbitraries.js";
+import { overlayStatusArb, propertyOptions, recordingStatusArb, safeArgArb } from "../test/arbitraries.js";
 import type { BrowserRow, SessionSummary } from "../domain/sessions.js";
-import { defaultVideoState, type RecordingStatus } from "../domain/videoState.js";
+import { defaultVideoState } from "../domain/videoState.js";
 import { homeModel } from "./home.js";
 import type { ToonTable } from "./toon.js";
 
@@ -12,9 +12,6 @@ const browserRowArb = fc.record({
 	name: safeArgArb,
 	status: safeArgArb,
 });
-
-const recordingStatusArb = fc.constantFrom<RecordingStatus>("active", "inactive", "unknown", "stale", "abandoned");
-const overlayStatusArb = fc.constantFrom("enabled", "disabled", "unknown" as const);
 
 describe("homeModel properties", () => {
 	it("preserves generated browser and video summary invariants", () => {

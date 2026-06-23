@@ -23,15 +23,27 @@ const globalPrefixArb = fc.array(
 	{ maxLength: 5 },
 ).map((chunks) => chunks.flat());
 
+const jsonDecoratedArgvArb = fc.array(safeArgArb, { maxLength: 20 }).chain((argv) =>
+	fc.array(fc.boolean(), { minLength: argv.length + 1, maxLength: argv.length + 1 }).map((slots) => {
+		const decorated: string[] = [];
+		for (const [index, arg] of argv.entries()) {
+			if (slots[index]) decorated.push("--json");
+			decorated.push(arg);
+		}
+		if (slots[argv.length]) decorated.push("--json");
+		return { argv, decorated };
+	}),
+);
+
 describe("commandSurface properties", () => {
-	it("removes --json idempotently while preserving every other argv entry in order", () => {
+	it("removes injected --json flags idempotently without changing generated arguments", () => {
 		fc.assert(
-			fc.property(fc.array(fc.string(), { maxLength: 20 }), (argv) => {
-				const stripped = stripJsonFlags(argv);
+			fc.property(jsonDecoratedArgvArb, ({ argv, decorated }) => {
+				const stripped = stripJsonFlags(decorated);
 
 				expect(stripJsonFlags(stripped)).toEqual(stripped);
 				expect(stripped).not.toContain("--json");
-				expect(stripped).toEqual(argv.filter((arg) => arg !== "--json"));
+				expect(stripped).toEqual(argv);
 			}),
 			propertyOptions,
 		);

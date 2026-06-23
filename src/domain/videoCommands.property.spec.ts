@@ -1,7 +1,7 @@
 import fc, { type Arbitrary } from "fast-check";
 import { describe, expect, it } from "vitest";
 
-import { parsedJson, parsedText, asyncPropertyOptions, propertyOptions, safeArgArb } from "../test/arbitraries.js";
+import { parsedJson, parsedText, asyncPropertyOptions, propertyOptions, safeArgArb, videoSizeArb } from "../test/arbitraries.js";
 import type { UpstreamRun } from "../upstream/runner.js";
 import {
 	extractVideoLinks,
@@ -11,7 +11,6 @@ import {
 import type { VideoCommandName } from "./commandSurface.js";
 import { defaultVideoState, type VideoSidecarState, type VideoStore } from "./videoState.js";
 
-const sizeArb = fc.stringMatching(/^[1-9][0-9]{0,3}x[1-9][0-9]{0,3}$/);
 const durationArb = fc.integer({ min: 0, max: 10_000 }).map(String);
 const positionArb = fc.constantFrom("top-left", "top", "top-right", "bottom-left", "bottom", "bottom-right");
 const cursorArb = fc.constantFrom("pointer", "none");
@@ -47,7 +46,7 @@ class MemoryVideoStore implements VideoStore {
 type ValidCase = { command: VideoCommandName; args: readonly string[]; state?: VideoSidecarState };
 
 const validCaseArb: Arbitrary<ValidCase> = fc.oneof(
-	fc.record({ file: fc.option(safeArgArb, { nil: undefined }), size: fc.option(sizeArb, { nil: undefined }) }).map(({ file, size }) => ({
+	fc.record({ file: fc.option(safeArgArb, { nil: undefined }), size: fc.option(videoSizeArb, { nil: undefined }) }).map(({ file, size }) => ({
 		command: "video-start" as const,
 		args: [...(file ? [file] : []), ...(size ? ["--size", size] : [])],
 		state: { ...defaultVideoState("/repo", "key", "default"), recording: { status: "inactive" as const } },
