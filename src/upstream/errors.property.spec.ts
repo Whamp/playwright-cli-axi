@@ -10,6 +10,56 @@ function failedRun(stderr: string): UpstreamRun {
   return { argv: ["open"], exitCode: 1, stdout: "", stderr, usedJson: false };
 }
 
+describe("normalizeUpstreamError missing_browser enrichment (F-2)", () => {
+  it("names the override env var + detected browser when browsers were detected", () => {
+    const stderr =
+      "Executable does not exist at /tmp/chrome-for-testing\nPlease run: playwright-cli install-browser chrome-for-testing";
+    const parsed = parseUpstreamOutput("", stderr, 1);
+    const run: UpstreamRun = {
+      argv: ["open"],
+      exitCode: 1,
+      stdout: "",
+      stderr,
+      usedJson: false,
+      detectedBrowsers: [{ path: "/usr/bin/chromium", channel: "chromium" }],
+    };
+    const result = normalizeUpstreamError(["open"], run, parsed);
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain("kind: missing_browser");
+    expect(result.stdout).toContain("PLAYWRIGHT_MCP_EXECUTABLE_PATH=/usr/bin/chromium");
+  });
+
+  it("falls back to install-browser suggestion when no browser was detected", () => {
+    const stderr =
+      "Executable does not exist\nPlease run: playwright-cli install-browser chrome-for-testing";
+    const parsed = parseUpstreamOutput("", stderr, 1);
+    const result = normalizeUpstreamError(
+      ["open"],
+      failedRun(stderr),
+      parsed,
+    );
+    expect(result.stdout).toContain(
+      "playwright-cli-axi install-browser chrome-for-testing",
+    );
+    expect(result.stdout).toContain("PLAYWRIGHT_MCP_EXECUTABLE_PATH=<path-to-chrome-or-chromium>");
+  });
+});
+
+describe("normalizeUpstreamError screenshot usage hint (P-3)", () => {
+  it("names --filename inline for a screenshot unknown-option error", () => {
+    const stderr = "unknown option: --path";
+    const parsed = parseUpstreamOutput("", stderr, 2);
+    const result = normalizeUpstreamError(
+      ["screenshot", "--path", "./x.png"],
+      { argv: ["screenshot"], exitCode: 2, stdout: "", stderr, usedJson: false },
+      parsed,
+    );
+    expect(result.exitCode).toBe(2);
+    expect(result.stdout).toContain("--filename <path>");
+    expect(result.stdout).toContain("positional is an element target");
+  });
+});
+
 describe("normalizeUpstreamError properties", () => {
   it("classifies generated browser-not-open messages as browser_not_open", () => {
     fc.assert(

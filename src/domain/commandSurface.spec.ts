@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { argsAfterCommand, commandName, hasVersionFlag, parseFieldsFlag, sessionFromArgv, shouldInjectJson, stripJsonFlags, stripWrapperFlags } from './commandSurface.js';
+import { argsAfterCommand, commandName, hasVersionFlag, isValidWaitState, parseFieldsFlag, parseWaitFlag, resolveRelativeFilePaths, sessionFromArgv, shouldInjectJson, stripJsonFlags, stripWrapperFlags } from './commandSurface.js';
 
 describe('commandSurface', () => {
   it('should strip user --json while injecting JSON only for supported upstream commands', () => {
@@ -62,5 +62,59 @@ describe('commandSurface', () => {
     // Act / Assert
     expect(argsAfterCommand(['video-start', '--session', 'demo', './out.webm', '--size', '320x240'])).toEqual(['./out.webm', '--size', '320x240']);
     expect(argsAfterCommand(['video-show-actions', '-s=demo', '--raw', '--duration', '100'])).toEqual(['--duration', '100']);
+  });
+});
+
+describe("resolveRelativeFilePaths (F-3)", () => {
+  it("absolutizes --filename value against the shell cwd", () => {
+    expect(
+      resolveRelativeFilePaths(["screenshot", "--filename", "./out.png"], "/repo"),
+    ).toEqual(["screenshot", "--filename", "/repo/./out.png"]);
+  });
+
+  it("absolutizes inline --filename=value form", () => {
+    expect(
+      resolveRelativeFilePaths(["pdf", "--filename=p.pdf"], "/repo"),
+    ).toEqual(["pdf", "--filename=/repo/p.pdf"]);
+  });
+
+  it("leaves absolute paths untouched", () => {
+    expect(
+      resolveRelativeFilePaths(["screenshot", "--filename", "/abs/out.png"], "/repo"),
+    ).toEqual(["screenshot", "--filename", "/abs/out.png"]);
+  });
+
+  it("leaves Windows absolute paths untouched", () => {
+    expect(
+      resolveRelativeFilePaths(["screenshot", "--filename", "C:\\out.png"], "/repo"),
+    ).toEqual(["screenshot", "--filename", "C:\\out.png"]);
+  });
+
+  it("absolutizes --path (upload) values too", () => {
+    expect(
+      resolveRelativeFilePaths(["drop", "e5", "--path", "./f.txt"], "/repo"),
+    ).toEqual(["drop", "e5", "--path", "/repo/./f.txt"]);
+  });
+
+  it("passes non-file args through unchanged", () => {
+    expect(
+      resolveRelativeFilePaths(["goto", "https://example.com"], "/repo"),
+    ).toEqual(["goto", "https://example.com"]);
+  });
+});
+
+describe("parseWaitFlag (P-5)", () => {
+  it("reads --wait <state> and validates the state", () => {
+    expect(parseWaitFlag(["click", "e5", "--wait", "networkidle"])).toBe("networkidle");
+    expect(parseWaitFlag(["goto", "https://x", "--wait=load"])).toBe("load");
+    expect(parseWaitFlag(["goto", "--wait", "bogus"])).toBeUndefined();
+    expect(parseWaitFlag(["goto", "https://x"])).toBeUndefined();
+  });
+
+  it("isValidWaitState accepts the three Playwright states", () => {
+    expect(isValidWaitState("load")).toBe(true);
+    expect(isValidWaitState("domcontentloaded")).toBe(true);
+    expect(isValidWaitState("networkidle")).toBe(true);
+    expect(isValidWaitState("idle")).toBe(false);
   });
 });

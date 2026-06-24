@@ -18,6 +18,10 @@ export const CATALOG = {
     "video-stop":
       "Stop recording and report typed video artifacts returned by upstream.",
     "video-chapter": "Add a title card marker to the recording timeline.",
+    "video-chapters":
+      "Read the recorded chapter manifest with seek offsets (no sidecar parsing).",
+    "video-status":
+      "Print the full recording summary: status, files, chapters, actions, warnings.",
     "video-show-actions":
       "Overlay subsequent action names and target highlights on the page.",
     "video-hide-actions": "Stop overlaying action callouts on the page.",
@@ -28,6 +32,10 @@ export const CATALOG = {
       "Install/repair the SessionStart hook so agent sessions start with live browser and video context.",
     context:
       "Print the token-budgeted session-start context slice (invoked by the hook).",
+    scroll:
+      "Scroll the page: --to <ref> (scrollIntoView), --top, --bottom, or --by <px>.",
+    wait:
+      "Wait for a page load state (load|domcontentloaded|networkidle) without manual sleep.",
   } as Record<string, string>,
 };
 
@@ -75,6 +83,9 @@ Use this skill when an agent needs to drive Playwright from a shell, inspect bro
 - User-supplied \`--json\` is ignored because wrapper stdout remains TOON.
 - Browser-not-open and missing-browser failures become actionable structured errors.
 - \`--version\` prints a clean TOON version; \`--full\` bypasses result truncation; \`--fields\` selects additional list columns.
+- A usable system browser (Chromium/Chrome/Edge) is auto-detected per OS (Linux incl. Arch/Ubuntu, macOS, Windows); set \`PLAYWRIGHT_MCP_EXECUTABLE_PATH\` to override. Channel sessions show a derived \`usable\` field.
+- Auto-generated page snapshots land in an OS cache dir (overridable via \`PLAYWRIGHT_CLI_AXI_ARTIFACT_DIR\`), so they do not pollute the working directory; named screenshots/videos still resolve to the current directory.
+- Get help with \`${CATALOG.npxBinary} <command> --help\` or the \`help <command>\` alias.
 
 ## Ambient context (two ways)
 

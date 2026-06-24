@@ -753,6 +753,100 @@ describe("runCli", () => {
     expect(result.stdout).toContain("playwright-cli install-browser [browser]");
     expect(result.stdout).not.toContain("video_commands");
   });
+
+  it("F-1: 'help <command>' is an alias for <command> --help", async () => {
+    const harness = await createHarness([
+      { stdout: "playwright-cli screenshot [target]\n\nscreenshot of the current page or element\n\nOptions:\n  --filename" },
+    ]);
+    const result = await harness.run(["help", "screenshot"]);
+    expect(result.exitCode).toBe(0);
+    expect(harness.upstreamRuns).toEqual([["screenshot", "--help"]]);
+    expect(result.stdout).toContain("command: screenshot");
+  });
+
+  it("F-1: root --help advertises the per-command --help path", async () => {
+    const harness = await createHarness([]);
+    const result = await harness.run(["--help"]);
+    expect(result.stdout).toContain("<command> --help");
+    expect(result.stdout).toContain("help <command>");
+  });
+
+  it("P-4: scroll --to <ref> forwards a scrollIntoView eval", async () => {
+    const harness = await createHarness([{ stdout: "" }]);
+    const result = await harness.run(["scroll", "--to", "e55"]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("command: scroll");
+    expect(result.stdout).toContain("scrolled ref e55 into view");
+    expect(harness.upstreamRuns[0]?.[0]).toBe("eval");
+    expect(harness.upstreamRuns[0]?.[1]).toContain("scrollIntoView");
+    expect(harness.upstreamRuns[0]).toContain("e55");
+  });
+
+  it("P-4: scroll --by <px> rejects non-integers with exit 2", async () => {
+    const harness = await createHarness([]);
+    const result = await harness.run(["scroll", "--by", "abc"]);
+    expect(result.exitCode).toBe(2);
+    expect(result.stdout).toContain("kind: usage");
+  });
+
+  it("P-4: scroll with no target is a usage error", async () => {
+    const harness = await createHarness([]);
+    const result = await harness.run(["scroll"]);
+    expect(result.exitCode).toBe(2);
+    expect(result.stdout).toContain("--to");
+    expect(result.stdout).toContain("--bottom");
+  });
+
+  it("P-5: wait forwards a waitForLoadState run-code", async () => {
+    const harness = await createHarness([{ stdout: "" }]);
+    const result = await harness.run(["wait", "--state", "networkidle"]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("command: wait");
+    expect(result.stdout).toContain("state: networkidle");
+    expect(harness.upstreamRuns[0]?.[0]).toBe("run-code");
+    expect(harness.upstreamRuns[0]?.[1]).toContain("waitForLoadState('networkidle'");
+  });
+
+  it("P-5: --wait on a generic command issues a post-action wait", async () => {
+    const harness = await createHarness([
+      { stdout: "clicked" },
+      { stdout: "" },
+    ]);
+    const result = await harness.run(["click", "e5", "--wait", "load"]);
+    expect(result.exitCode).toBe(0);
+    // wrapper-only --wait is stripped from the forwarded click argv
+    expect(harness.upstreamRuns[0]).toEqual(["click", "e5"]);
+    expect(harness.upstreamRuns[1]?.[0]).toBe("run-code");
+    expect(result.stdout).toContain("command: click");
+  });
+
+  it("F-4: video-chapters reads the chapter manifest with offsets", async () => {
+    const harness = await createHarness([
+      { stdout: "Video recording started." },
+      { stdout: "Action annotations enabled." },
+    ]);
+    await harness.run(["video-start", "./rec.webm", "--size", "320x240"]);
+    await harness.run(["video-chapter", "Intro"]);
+    const result = await harness.run(["video-chapters"]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("command: video-chapters");
+    expect(result.stdout).toContain("offset:");
+    expect(result.stdout).toContain("Intro");
+  });
+
+  it("F-4: video-status reports recording summary and chapters", async () => {
+    const harness = await createHarness([
+      { stdout: "Video recording started." },
+      { stdout: "Action annotations enabled." },
+    ]);
+    await harness.run(["video-start", "./rec.webm"]);
+    await harness.run(["video-chapter", "A"]);
+    const result = await harness.run(["video-status"]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("command: video-status");
+    expect(result.stdout).toContain("requestedFile: ./rec.webm");
+    expect(result.stdout).toContain("chapter_rows");
+  });
 });
 
 interface FakeRun {

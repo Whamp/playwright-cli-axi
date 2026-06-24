@@ -6,6 +6,7 @@ import {
   type VideoCommandName,
 } from "./commandSurface.js";
 import type { VideoStore, VideoSidecarState } from "./videoState.js";
+import { chapterManifest } from "./videoState.js";
 import { parseUpstreamOutput, isObject } from "../upstream/parse.js";
 import type { UpstreamRunner } from "../upstream/runner.js";
 import { errorToStdout } from "../presenter/errors.js";
@@ -34,6 +35,16 @@ export async function handleVideoCommand(
 ): Promise<CliResult> {
   const command = commandName(context.argv) as VideoCommandName;
   const state = await context.store.load();
+
+  /*
+   * F-4: `video-chapters` and `video-status` are wrapper-only read commands.
+   * They never call upstream — they project the sidecar state (chapter
+   * manifest with offsets, recording status) so an agent can recover a
+   * recording's chapter map without parsing the sidecar JSON by hand.
+   */
+  if (command === 'video-chapters') return videoChaptersResult(command, state);
+  if (command === 'video-status') return videoStatusResult(command, state);
+
   const validation = validateVideoCommand(
     command,
     argsAfterCommand(context.argv),
@@ -232,7 +243,28 @@ export function validateVideoCommand(
         );
       return { ok: true, options: { positionals, flags } };
     }
+    case "video-chapters":
+    case "video-status": {
+      // Intercepted before validation in handleVideoCommand; these cases keep
+      // the switch exhaustive so VideoCommandName stays a closed union.
+      const unknown = unknownFlags(flags, []);
+      if (unknown)
+        return usage(`${unknown} is not supported by ${command}`, command);
+      if (positionals.length > 0)
+        return usage(`${command} does not accept positional arguments`, command);
+      return { ok: true, options: { positionals, flags } };
+    }
+    default:
+      return exhaustiveVideoCommand(command);
   }
+}
+
+function exhaustiveVideoCommand(command: never): Validation {
+  return {
+    ok: false,
+    message: `${command} is not a recognized video command`,
+    help: ["playwright-cli-axi --help"],
+  };
 }
 
 function mutateStateAfterSuccess(
@@ -280,6 +312,10 @@ function mutateStateAfterSuccess(
     case "video-hide-actions":
       next.actionsOverlay = { status: "disabled", updatedAt: at };
       return next;
+    // Read-only commands are intercepted before this runs; no state change.
+    case "video-chapters":
+    case "video-status":
+      return next;
   }
 }
 
@@ -325,6 +361,9 @@ function videoSuccessModel(
         ? { other_artifact_files: artifacts.otherArtifacts }
         : {}),
       ...(artifacts.all.length > 0 ? { last_files: artifacts.all } : {}),
+      ...(state.chapters.length > 0
+        ? { chapters: chapterManifest(state) }
+        : {}),
     };
   }
   if (command === "video-chapter") {
@@ -402,6 +441,80 @@ function describeTarget(
   if (file !== undefined) parts.push(`file ${file}`);
   if (size !== undefined) parts.push(`size ${size}`);
   return parts.length > 0 ? parts.join(" at ") : "no explicit target";
+}
+
+/**
+ * F-4: read commands that project the sidecar so agents never need to parse
+ * the sidecar JSON directly. `video-chapters` returns the chapter manifest
+ * with seek offsets; `video-status` returns the full recording summary.
+ */
+function videoChaptersResult(
+  command: VideoCommandName,
+  state: VideoSidecarState,
+): CliResult {
+  const manifest = chapterManifest(state);
+  return {
+    exitCode: 0,
+    stdout: toToon({
+      command,
+      status: "ok",
+      recording: recordingSummary(state),
+      chapters: {
+        count: manifest.length,
+        ...(manifest.length === 0
+          ? { empty: "no chapters recorded; run video-chapter <title>" }
+          : {}),
+      },
+      ...(manifest.length > 0 ? { chapter_rows: manifest } : {}),
+    } as ToonValue),
+  };
+}
+
+function videoStatusResult(
+  command: VideoCommandName,
+  state: VideoSidecarState,
+): CliResult {
+  const manifest = chapterManifest(state);
+  return {
+    exitCode: 0,
+    stdout: toToon({
+      command,
+      status: "ok",
+      recording: recordingSummary(state),
+      files: {
+        count: state.lastFiles.length,
+        ...(state.lastFiles.length === 0
+          ? { empty: "no video files recorded yet" }
+          : {}),
+      },
+      ...(state.lastFiles.length > 0
+        ? { last_files: state.lastFiles }
+        : {}),
+      chapters: {
+        count: manifest.length,
+        ...(manifest.length === 0
+          ? { empty: "no chapters recorded" }
+          : {}),
+      },
+      ...(manifest.length > 0 ? { chapter_rows: manifest } : {}),
+      actions: state.actionsOverlay.status,
+      ...(state.warnings.length > 0
+        ? { warnings: state.warnings.slice(-3) }
+        : {}),
+    } as ToonValue),
+  };
+}
+
+function recordingSummary(state: VideoSidecarState): ToonValue {
+  const r = state.recording;
+  return {
+    status: r.status,
+    ...(r.requestedFile ? { requestedFile: r.requestedFile } : {}),
+    ...(r.requestedSize ? { requestedSize: r.requestedSize } : {}),
+    ...(r.startedAt ? { startedAt: r.startedAt } : {}),
+    ...(r.stoppedAt ? { stoppedAt: r.stoppedAt } : {}),
+    source: "sidecar",
+  };
 }
 
 /**

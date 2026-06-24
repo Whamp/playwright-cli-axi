@@ -62,9 +62,10 @@ describe("commandSuccessModel", () => {
     expect(output).toContain("debug,chromium,1.2.3,/tmp/profile,/repo");
     expect(output).toContain("channel_sessions:\n  count: 1");
     expect(output).toContain(
-      "channel_session_rows[1]{channel,dataDir,extension,endpoint}:",
+      "channel_session_rows[1]{channel,dataDir,extension,endpoint,usable}:",
     );
-    expect(output).toContain("chrome,/tmp/chrome,yes,yes");
+    // `usable` is a machine-dependent derived field; assert the stable prefix.
+    expect(output).toContain("chrome,/tmp/chrome,yes,yes,");
   });
 
   it("should preserve single close session status instead of treating it as close-all", () => {
@@ -387,5 +388,57 @@ describe("commandSuccessModel --full (AXI principle 3)", () => {
     expect(m1.result_truncated).toBeUndefined();
     expect(m2.result_truncated).toBe(true);
     expect(m2.result_bytes).toBe(Buffer.byteLength(JSON.stringify(overBoundary), "utf8"));
+  });
+});
+
+describe("commandSuccessModel navigation flatten (P-1) and snapshot render (P-2)", () => {
+  it("P-1: lifts the snapshot file to top level for open, dropping result.result nesting", () => {
+    const parsed = {
+      kind: "json" as const,
+      value: {
+        session: "default",
+        pid: 42,
+        result: { snapshot: { file: ".cache/page-x.yml" } },
+      },
+      isError: false,
+    };
+    const model = commandSuccessModel("open", parsed);
+    expect(model.snapshot).toEqual({ file: ".cache/page-x.yml" });
+    // session/pid preserved under result, redundant inner result dropped
+    const result = model.result as Record<string, unknown>;
+    expect(result.session).toBe("default");
+    expect(result.pid).toBe(42);
+    expect(result.result).toBeUndefined();
+  });
+
+  it("P-1: flattens goto/click results the same way", () => {
+    const parsed = {
+      kind: "json" as const,
+      value: { result: { snapshot: { file: "p.yml" } } },
+      isError: false,
+    };
+    expect((commandSuccessModel("goto", parsed) as Record<string, unknown>).snapshot).toEqual({ file: "p.yml" });
+    expect((commandSuccessModel("click", parsed) as Record<string, unknown>).snapshot).toEqual({ file: "p.yml" });
+  });
+
+  it("P-2: renders the snapshot a11y tree as readable bounded text, not JSON-string-of-YAML", () => {
+    const tree = "- generic [ref=e5]:\n  - heading \"Hi\" [ref=e6]";
+    const parsed = { kind: "json" as const, value: { snapshot: tree }, isError: false };
+    const model = commandSuccessModel("snapshot", parsed);
+    expect(model.snapshot).toBe(tree);
+    expect(JSON.stringify(model)).not.toContain('"{\\"snapshot\\"');
+    expect(model.snapshot_truncated).toBeUndefined();
+  });
+
+  it("P-2: truncates a large snapshot with a char count and --full escape hatch", () => {
+    const tree = "x".repeat(2000);
+    const parsed = { kind: "json" as const, value: { snapshot: tree }, isError: false };
+    const truncated = commandSuccessModel("snapshot", parsed) as Record<string, unknown>;
+    expect(truncated.snapshot_truncated).toBe(true);
+    expect(truncated.snapshot_chars).toBe(2000);
+    expect((truncated.help as string[])[0]).toContain("snapshot --full");
+    const full = commandSuccessModel("snapshot", parsed, { full: true }) as Record<string, unknown>;
+    expect(full.snapshot).toBe(tree);
+    expect(full.snapshot_truncated).toBeUndefined();
   });
 });

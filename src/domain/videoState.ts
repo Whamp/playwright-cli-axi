@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
+import type { ToonValue } from '../presenter/toon.js';
 
 export type RecordingStatus = 'active' | 'inactive' | 'unknown' | 'stale' | 'abandoned';
 
@@ -92,6 +93,45 @@ export function reconcileVideoState(state: VideoSidecarState, live: { browserCou
     recording: { ...state.recording, status: 'stale' },
     warnings: state.warnings.includes(warning) ? state.warnings : [...state.warnings, warning]
   };
+}
+
+export interface ChapterManifestEntry extends Record<string, ToonValue> {
+  index: number;
+  offset: string;
+  title: string;
+}
+
+/**
+ * F-4: build a readable chapter manifest with offsets relative to the
+ * recording start. `offset` is `mm:ss` so agents can seek without re-parsing
+ * ISO timestamps or touching the sidecar directly.
+ */
+export function chapterManifest(
+  state: VideoSidecarState,
+): ChapterManifestEntry[] {
+  const startedAt = state.recording.startedAt
+    ? Date.parse(state.recording.startedAt)
+    : NaN;
+  return state.chapters.map((chapter, index) => {
+    const offsetMs = Number.isFinite(startedAt)
+      ? Math.max(0, Date.parse(chapter.createdAt) - startedAt)
+      : 0;
+    const entry: ChapterManifestEntry = {
+      index: index + 1,
+      offset: formatOffset(offsetMs),
+      title: chapter.title,
+    };
+    if (chapter.description) entry.description = chapter.description;
+    if (chapter.duration !== undefined) entry.duration_ms = chapter.duration;
+    return entry;
+  });
+}
+
+function formatOffset(ms: number): string {
+  const totalSeconds = Math.round(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 }
 
 function mergeState(state: Partial<VideoSidecarState>, cwd: string, key: string, session: string): VideoSidecarState {

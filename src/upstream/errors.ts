@@ -1,5 +1,6 @@
 import type { CliResult } from "../cli/main.js";
 import { commandName } from "../domain/commandSurface.js";
+import { OVERRIDE_ENV_VAR, type DiscoveredBrowser } from "../domain/browserDiscovery.js";
 import { errorToStdout } from "../presenter/errors.js";
 import type { ParsedUpstream } from "./parse.js";
 import { sanitizeDependencyText } from "./parse.js";
@@ -48,7 +49,7 @@ export function normalizeUpstreamError(
         kind: "missing_browser",
         message: "required browser executable is missing",
         command,
-        help: ["playwright-cli-axi install-browser chrome-for-testing"],
+        help: missingBrowserHelp(run.detectedBrowsers),
       }),
     };
   }
@@ -72,9 +73,7 @@ export function normalizeUpstreamError(
         kind: "usage",
         message: clean || "upstream rejected the command usage",
         command,
-        help: [
-          `playwright-cli-axi ${helpCommand ? `${helpCommand} ` : ""}--help`,
-        ],
+        help: commandSpecificUsageHelp(helpCommand),
       }),
     };
   }
@@ -97,4 +96,46 @@ function sanitizeMessage(raw: string): string {
     )
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/**
+ * Build actionable `help[]` entries for a missing_browser error (F-2).
+ *
+ * Always names the override env var. If the wrapper detected usable system
+ * browsers, says so (they should have been auto-used, so their presence here
+ * usually means the daemon was already running with a stale config — restart
+ * it). Falls back to the install-browser suggestion when nothing was detected.
+ */
+function missingBrowserHelp(detected: DiscoveredBrowser[] | undefined): string[] {
+  const help: string[] = [];
+  if (detected && detected.length > 0) {
+    const first = detected[0]!.path;
+    help.push(`${OVERRIDE_ENV_VAR}=${first}`);
+  } else {
+    help.push(`${OVERRIDE_ENV_VAR}=<path-to-chrome-or-chromium>`);
+    help.push("playwright-cli-axi install-browser chrome-for-testing");
+  }
+  return help;
+}
+
+/**
+ * P-3: name the correct flags inline for commands whose argument shape is
+ * commonly mis-guessed, so the agent learns the usage from the error itself
+ * rather than failing twice. Falls back to the command's `--help`.
+ */
+function commandSpecificUsageHelp(command: string | undefined): string[] {
+  const base = `playwright-cli-axi ${command ? `${command} ` : ""}--help`;
+  if (command === "screenshot" || command === "pdf") {
+    return [
+      `playwright-cli-axi ${command} --filename <path>   # positional is an element target, not a file`,
+      base,
+    ];
+  }
+  if (command === "snapshot") {
+    return [
+      `playwright-cli-axi snapshot [ref]   # use --filename to save to a file`,
+      base,
+    ];
+  }
+  return [base];
 }

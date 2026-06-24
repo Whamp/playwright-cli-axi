@@ -27,6 +27,8 @@ const MAX_RESULT_BYTES = 1500;
 export interface SuccessOptions {
   full?: boolean;
   fields?: string[];
+  /** F-3: cwd upstream ran in; relative returned paths are resolved against it. */
+  artifactBase?: string;
 }
 
 export function commandSuccessModel(
@@ -39,6 +41,10 @@ export function commandSuccessModel(
       return listModel(command, parsed.value, options.fields);
     if (command === "close") return closeModel(command, parsed.value);
     if (command === "close-all") return closeAllModel(command, parsed.value);
+    if (command === "snapshot")
+      return snapshotModel(command, parsed.value, options);
+    if (NAVIGATION_COMMANDS.has(command))
+      return navigationModel(command, parsed.value, options);
     return familyResultModel(command, parsed.value, options);
   }
 
@@ -50,6 +56,26 @@ export function commandSuccessModel(
         : parsed.text,
   };
 }
+
+/** Commands whose payload carries an auto-generated snapshot/artifact file (P-1). */
+const NAVIGATION_COMMANDS = new Set([
+  "open",
+  "goto",
+  "click",
+  "dblclick",
+  "fill",
+  "select",
+  "check",
+  "uncheck",
+  "hover",
+  "drag",
+  "drop",
+  "reload",
+  "go-back",
+  "go-forward",
+  "tab-new",
+  "tab-select",
+]);
 
 function listModel(
   command: string,
@@ -197,6 +223,103 @@ function baseModel(command: string): Record<string, ToonValue> {
     status: "ok",
     ...(group ? { family: { id: group.id, title: group.title } } : {}),
   };
+}
+
+/**
+ * P-1: flatten navigation results so the snapshot/artifact file is top-level
+ * instead of buried under a redundant `result.result.snapshot` envelope.
+ * Siblings like session/pid are preserved.
+ */
+function navigationModel(
+  command: string,
+  value: unknown,
+  options: SuccessOptions,
+): Record<string, ToonValue> {
+  const base = baseModel(command);
+  if (!isObject(value)) return { ...base, result: toResultValue(value) };
+
+  const lifted: Record<string, ToonValue> = { ...base };
+  const remaining: Record<string, ToonValue> = {};
+
+  for (const [key, child] of Object.entries(value)) {
+    if (key === "result" && isObject(child) && "snapshot" in child) {
+      // Lift the snapshot out of the redundant `result` wrapper.
+      if ("snapshot" in child)
+        lifted.snapshot = resolveSnapshot(simpleValue(child.snapshot), options.artifactBase);
+      // Keep any non-snapshot siblings of the inner result.
+      for (const [innerKey, innerChild] of Object.entries(child)) {
+        if (innerKey === "snapshot") continue;
+        remaining[innerKey] = simpleValue(innerChild);
+      }
+    } else if (key === "snapshot") {
+      lifted.snapshot = resolveSnapshot(simpleValue(child), options.artifactBase);
+    } else {
+      remaining[key] = simpleValue(child);
+    }
+  }
+
+  if (Object.keys(remaining).length > 0) lifted.result = remaining;
+  else if (lifted.snapshot === undefined) lifted.result = toResultValue(value);
+  return lifted;
+}
+
+/**
+ * F-3: resolve a returned snapshot file path against the artifact dir so the
+ * agent can find it regardless of where upstream ran. Text snapshots (the a11y
+ * tree) and already-absolute paths pass through unchanged.
+ */
+function resolveSnapshot(snapshot: ToonValue, artifactBase?: string): ToonValue {
+  if (!artifactBase) return snapshot;
+  if (isObject(snapshot) && typeof snapshot.file === "string") {
+    return { ...snapshot, file: resolveAgainst(snapshot.file, artifactBase) };
+  }
+  if (typeof snapshot === "string" && snapshot.includes("\n")) return snapshot; // a11y tree text
+  if (typeof snapshot === "string") return resolveAgainst(snapshot, artifactBase);
+  return snapshot;
+}
+
+function resolveAgainst(path: string, base: string): string {
+  if (path === "") return path;
+  const isAbsolute = path.startsWith("/") || /^[A-Za-z]:[\\/]/.test(path) || path.startsWith("\\\\");
+  return isAbsolute ? path : `${base.replace(/\/+$/, "")}/${path}`;
+}
+
+/**
+ * P-2: render the accessibility-tree snapshot as readable bounded text instead
+ * of a double-escaped JSON-string-of-YAML. Truncate the tree with a total
+ * char count and the `--full` escape hatch (AXI principle 3).
+ */
+function snapshotModel(
+  command: string,
+  value: unknown,
+  options: SuccessOptions,
+): Record<string, ToonValue> {
+  const payload = unwrapResult(value);
+  const text = isObject(payload) && typeof payload.snapshot === "string"
+    ? payload.snapshot
+    : typeof value === "string"
+      ? value
+      : "";
+  const base = baseModel(command);
+  if (text.length === 0) {
+    return { ...base, result: toResultValue(value) };
+  }
+  if (options.full || text.length <= 1200) {
+    return { ...base, snapshot: text };
+  }
+  return {
+    ...base,
+    snapshot: `${text.slice(0, 1200)}…`,
+    snapshot_truncated: true,
+    snapshot_chars: text.length,
+    help: [`playwright-cli-axi snapshot --full`],
+  };
+}
+
+/** Unwrap upstream's `{ result: <payload> }` convention when present. */
+function unwrapResult(value: unknown): unknown {
+  if (isObject(value) && isObject(value.result)) return value.result;
+  return value;
 }
 
 function arrayCounts(value: unknown): Record<string, ToonValue> {

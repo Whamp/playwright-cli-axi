@@ -1,5 +1,6 @@
 import type { ToonValue } from "../presenter/toon.js";
 import { isObject } from "../upstream/parse.js";
+import { channelUsable, type BrowserDiscoveryDeps } from "./browserDiscovery.js";
 
 export interface SessionSummary {
   browsers: { count: number; empty?: string; rows: BrowserRow[] };
@@ -26,6 +27,8 @@ export interface ChannelSessionRow extends Record<string, ToonValue> {
   dataDir: string;
   extension: string;
   endpoint: string;
+  /** F-2: whether a browser for this channel is installed and drivable. */
+  usable: string;
 }
 
 /** Default (minimal) table schemas for list output. */
@@ -58,6 +61,7 @@ export const CHANNEL_TABLE_FIELDS = [
   "dataDir",
   "extension",
   "endpoint",
+  "usable",
 ];
 
 /**
@@ -85,7 +89,15 @@ export interface CloseStatus {
   status: string;
 }
 
-export function normalizeSessions(value: unknown): SessionSummary {
+export interface NormalizeSessionsOptions {
+  /** Injectable discovery deps so `usable` is deterministic in tests. */
+  discovery?: BrowserDiscoveryDeps;
+}
+
+export function normalizeSessions(
+  value: unknown,
+  options: NormalizeSessionsOptions = {},
+): SessionSummary {
   if (!isObject(value)) return emptySessions();
   const browsers = Array.isArray(value.browsers) ? value.browsers : [];
   const servers = Array.isArray(value.servers) ? value.servers : [];
@@ -100,7 +112,9 @@ export function normalizeSessions(value: unknown): SessionSummary {
       "no attachable browser servers",
     ),
     channelSessions: rowsSummary(
-      channelSessions.map(normalizeChannelSession),
+      channelSessions.map((session, index) =>
+        normalizeChannelSession(session, index, options.discovery),
+      ),
       "no channel sessions",
     ),
   };
@@ -187,6 +201,7 @@ function normalizeServer(server: unknown, index: number): ServerRow {
 function normalizeChannelSession(
   session: unknown,
   index: number,
+  discovery?: BrowserDiscoveryDeps,
 ): ChannelSessionRow {
   if (!isObject(session))
     return {
@@ -194,12 +209,15 @@ function normalizeChannelSession(
       dataDir: "",
       extension: "unknown",
       endpoint: "no",
+      usable: "no",
     };
+  const channel = stringField(session, ["channel", "name", "id"], String(index + 1));
   return {
-    channel: stringField(session, ["channel", "name", "id"], String(index + 1)),
+    channel,
     dataDir: stringField(session, ["userDataDir", "dataDir"], ""),
     extension: booleanField(session, ["extensionInstalled"]),
     endpoint: truthyField(session, ["endpoint"]),
+    usable: channelUsable(channel, discovery),
   };
 }
 

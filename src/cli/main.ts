@@ -6,7 +6,9 @@ import {
   hasFullFlag,
   isVideoCommand,
   isWrapperCommand,
+  isValidWaitState,
   parseFieldsFlag,
+  parseWaitFlag,
   sessionFromArgv,
   stripJsonFlags,
   stripWrapperFlags,
@@ -27,15 +29,13 @@ import {
   reconcileVideoState,
   type VideoSidecarState,
 } from "../domain/videoState.js";
-import {
-  helpToStdout,
-  upstreamHelpPreviewToStdout,
-} from "../presenter/help.js";
+import { helpToStdout, upstreamHelpPreviewToStdout } from "../presenter/help.js";
 import { homeModel } from "../presenter/home.js";
 import { contextModel } from "../presenter/context.js";
 import { commandSuccessModel } from "../presenter/success.js";
 import { toToon, type ToonValue } from "../presenter/toon.js";
 import { versionModel } from "../presenter/version.js";
+import { errorToStdout } from "../presenter/errors.js";
 import { normalizeUpstreamError } from "../upstream/errors.js";
 import { parseUpstreamOutput } from "../upstream/parse.js";
 import {
@@ -72,6 +72,13 @@ export async function runCli(
 
   if (argv.length === 0) return await renderHome(deps);
   if (hasVersionFlag(argv)) return renderVersion(deps);
+  // F-1: accept `playwright-cli-axi help [command]` as an alias for
+  // `<command> --help`, so help is discoverable without learning the flag form.
+  if (command === "help") {
+    const sub = argv[argv.indexOf("help") + 1];
+    const helpArgv = sub ? [sub, "--help"] : ["--help"];
+    return runCli(helpArgv, deps);
+  }
   if (argv.includes("--help") || argv.includes("-h")) {
     if (!command || isVideoCommand(command) || isWrapperCommand(command))
       return { exitCode: 0, stdout: helpToStdout(command) };
@@ -79,6 +86,8 @@ export async function runCli(
   }
   if (command === "setup") return runSetup(argv, deps);
   if (command === "context") return await runContext(deps);
+  if (command === "scroll") return await runScrollCommand(argv, deps);
+  if (command === "wait") return await runWaitCommand(argv, deps);
   if (isVideoCommand(command)) {
     return await handleVideoCommand({
       argv,
@@ -230,14 +239,21 @@ async function runGenericCommand(
 ): Promise<CliResult> {
   const full = hasFullFlag(argv);
   const fields = parseFieldsFlag(argv);
+  const wait = parseWaitFlag(argv);
   const run = await deps.upstream(stripWrapperFlags(argv));
   const parsed = parseUpstreamOutput(run.stdout, run.stderr, run.exitCode);
   if (parsed.isError || run.exitCode !== 0)
     return normalizeUpstreamError(argv, run, parsed);
   const command = commandName(argv) ?? argv[0] ?? "command";
+  // P-5: optionally wait for the page to settle after a navigation-producing
+  // command, so the post-action state is trustworthy without manual sleep.
+  if (wait) {
+    const waitResult = await runPageWait(wait, deps);
+    if (waitResult.kind === "error") return waitResult.result;
+  }
   return {
     exitCode: 0,
-    stdout: toToon(commandSuccessModel(command, parsed, { full, fields })),
+    stdout: toToon(commandSuccessModel(command, parsed, { full, fields, artifactBase: run.artifactBase })),
   };
 }
 
@@ -254,6 +270,158 @@ async function runHelpCommand(
   return {
     exitCode: 0,
     stdout: upstreamHelpPreviewToStdout(commandName(argv) ?? "help", text),
+  };
+}
+
+/**
+ * P-4: scroll convenience command. Translates to an upstream `eval` so agents
+ * do not hand-write scrollIntoView/scrollBy JS on every navigation.
+ */
+async function runScrollCommand(
+  argv: string[],
+  deps: Required<CliDependencies>,
+): Promise<CliResult> {
+  const rest = argv.slice(argv.indexOf("scroll") + 1);
+  let toRef: string | undefined;
+  let byPx: string | undefined;
+  let where: "top" | "bottom" | undefined;
+  for (let i = 0; i < rest.length; i += 1) {
+    const a = rest[i]!;
+    if (a === "--to") toRef = rest[i + 1];
+    else if (a.startsWith("--to=")) toRef = a.slice("--to=".length);
+    else if (a === "--by") byPx = rest[i + 1];
+    else if (a.startsWith("--by=")) byPx = a.slice("--by=".length);
+    else if (a === "--top") where = "top";
+    else if (a === "--bottom") where = "bottom";
+  }
+  let evalArgv: string[];
+  let description: string;
+  if (toRef) {
+    evalArgv = [
+      "eval",
+      "(element) => element.scrollIntoView({ block: 'center', inline: 'nearest' })",
+      toRef,
+    ];
+    description = `scrolled ref ${toRef} into view`;
+  } else if (where === "top") {
+    evalArgv = ["eval", "() => window.scrollTo(0, 0)"];
+    description = "scrolled to top";
+  } else if (where === "bottom") {
+    evalArgv = [
+      "eval",
+      "() => window.scrollTo(0, document.body.scrollHeight)",
+    ];
+    description = "scrolled to bottom";
+  } else if (byPx !== undefined) {
+    if (!/^-?\d+$/.test(byPx))
+      return usageError("scroll", `--by must be an integer number of pixels`);
+    evalArgv = ["eval", `() => window.scrollBy(0, ${byPx})`];
+    description = `scrolled by ${byPx}px`;
+  } else {
+    return usageError(
+      "scroll",
+      "scroll needs one of --to <ref>, --top, --bottom, or --by <px>",
+      [
+        "playwright-cli-axi scroll --to e55",
+        "playwright-cli-axi scroll --bottom",
+        "playwright-cli-axi scroll --by 600",
+      ],
+    );
+  }
+  const run = await deps.upstream(stripWrapperFlags(evalArgv));
+  const parsed = parseUpstreamOutput(run.stdout, run.stderr, run.exitCode);
+  if (parsed.isError || run.exitCode !== 0)
+    return normalizeUpstreamError(evalArgv, run, parsed);
+  return {
+    exitCode: 0,
+    stdout: toToon({
+      command: "scroll",
+      status: "ok",
+      action: description,
+      result: successTextOf(parsed),
+    }),
+  };
+}
+
+/**
+ * P-5: wait command. Forwards a Playwright `waitForLoadState` via `run-code`
+ * so agents can make post-navigation state deterministic without sleep.
+ */
+async function runWaitCommand(
+  argv: string[],
+  deps: Required<CliDependencies>,
+): Promise<CliResult> {
+  const rest = argv.slice(argv.indexOf("wait") + 1);
+  let state = "networkidle";
+  let timeout = "5000";
+  for (let i = 0; i < rest.length; i += 1) {
+    const a = rest[i]!;
+    if (a === "--state") state = rest[i + 1] ?? state;
+    else if (a.startsWith("--state=")) state = a.slice("--state=".length);
+    else if (a === "--timeout") timeout = rest[i + 1] ?? timeout;
+    else if (a.startsWith("--timeout=")) timeout = a.slice("--timeout=".length);
+  }
+  if (!isValidWaitState(state))
+    return usageError(
+      "wait",
+      "--state must be one of load, domcontentloaded, networkidle",
+    );
+  if (!/^\d+$/.test(timeout))
+    return usageError("wait", "--timeout must be a positive integer (ms)");
+  const code = `await page.waitForLoadState('${state}', { timeout: ${timeout} }).catch(() => {})`;
+  const run = await deps.upstream(["run-code", code]);
+  const parsed = parseUpstreamOutput(run.stdout, run.stderr, run.exitCode);
+  if (parsed.isError || run.exitCode !== 0)
+    return normalizeUpstreamError(["wait", ...rest], run, parsed);
+  return {
+    exitCode: 0,
+    stdout: toToon({
+      command: "wait",
+      status: "ok",
+      state,
+      timeout_ms: Number(timeout),
+    }),
+  };
+}
+
+/** Issue a bounded page wait after a navigation command (P-5). */
+async function runPageWait(
+  state: string,
+  deps: Required<CliDependencies>,
+): Promise<{ kind: "ok" } | { kind: "error"; result: CliResult }> {
+  const code = `await page.waitForLoadState('${state}', { timeout: 5000 }).catch(() => {})`;
+  const run = await deps.upstream(["run-code", code]);
+  const parsed = parseUpstreamOutput(run.stdout, run.stderr, run.exitCode);
+  if (parsed.isError || run.exitCode !== 0)
+    return {
+      kind: "error",
+      result: normalizeUpstreamError(["--wait", state], run, parsed),
+    };
+  return { kind: "ok" };
+}
+
+function successTextOf(parsed: ReturnType<typeof parseUpstreamOutput>): string {
+  if (parsed.kind === "text") return parsed.text;
+  if (parsed.value && typeof parsed.value === "object" && "result" in parsed.value) {
+    const v = (parsed.value as { result?: unknown }).result;
+    return typeof v === "string" ? v : "";
+  }
+  return "";
+}
+
+function usageError(
+  command: string,
+  message: string,
+  help?: string[],
+): CliResult {
+  return {
+    exitCode: 2,
+    stdout: errorToStdout({
+      kind: "usage",
+      message,
+      command,
+      help: help ?? [`playwright-cli-axi ${command} --help`],
+    }),
   };
 }
 

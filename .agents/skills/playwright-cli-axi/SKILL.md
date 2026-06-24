@@ -17,6 +17,9 @@ Use this skill when an agent needs to drive Playwright from a shell, inspect bro
 - User-supplied `--json` is ignored because wrapper stdout remains TOON.
 - Browser-not-open and missing-browser failures become actionable structured errors.
 - `--version` prints a clean TOON version; `--full` bypasses result truncation; `--fields` selects additional list columns.
+- A usable system browser (Chromium/Chrome/Edge) is auto-detected per OS (Linux incl. Arch/Ubuntu, macOS, Windows); set `PLAYWRIGHT_MCP_EXECUTABLE_PATH` to override. Channel sessions show a derived `usable` field.
+- Auto-generated page snapshots land in an OS cache dir (overridable via `PLAYWRIGHT_CLI_AXI_ARTIFACT_DIR`), so they do not pollute the working directory; named screenshots/videos still resolve to the current directory.
+- Get help with `npx -y playwright-cli-axi <command> --help` or the `help <command>` alias.
 
 ## Ambient context (two ways)
 
@@ -44,12 +47,16 @@ You can get live browser and video context at session start in two complementary
 
 - `npx -y playwright-cli-axi setup` — Install/repair the SessionStart hook so agent sessions start with live browser and video context.
 - `npx -y playwright-cli-axi context` — Print the token-budgeted session-start context slice (invoked by the hook).
+- `npx -y playwright-cli-axi scroll` — Scroll the page: --to <ref> (scrollIntoView), --top, --bottom, or --by <px>.
+- `npx -y playwright-cli-axi wait` — Wait for a page load state (load|domcontentloaded|networkidle) without manual sleep.
 
 ## Video workflow
 
 - `npx -y playwright-cli-axi video-start` — Start recording the current browser session to an optional WebM file.
 - `npx -y playwright-cli-axi video-stop` — Stop recording and report typed video artifacts returned by upstream.
 - `npx -y playwright-cli-axi video-chapter` — Add a title card marker to the recording timeline.
+- `npx -y playwright-cli-axi video-chapters` — Read the recorded chapter manifest with seek offsets (no sidecar parsing).
+- `npx -y playwright-cli-axi video-status` — Print the full recording summary: status, files, chapters, actions, warnings.
 - `npx -y playwright-cli-axi video-show-actions` — Overlay subsequent action names and target highlights on the page.
 - `npx -y playwright-cli-axi video-hide-actions` — Stop overlaying action callouts on the page.
 

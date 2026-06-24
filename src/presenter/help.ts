@@ -123,6 +123,27 @@ const VIDEO_HELP: Record<string, HelpDefinition> = {
       "playwright-cli-axi video-stop",
     ],
   },
+  "video-chapters": {
+    command: "video-chapters",
+    summary:
+      "Read the recorded chapter manifest with seek offsets relative to recording start.",
+    usage: "playwright-cli-axi video-chapters",
+    args: [],
+    flags: [],
+    examples: [
+      "playwright-cli-axi video-chapters",
+      "playwright-cli-axi video-status",
+    ],
+  },
+  "video-status": {
+    command: "video-status",
+    summary:
+      "Print the full recording summary: status, files, chapter manifest, actions, and warnings.",
+    usage: "playwright-cli-axi video-status",
+    args: [],
+    flags: [],
+    examples: ["playwright-cli-axi video-status"],
+  },
 };
 
 const WRAPPER_HELP: Record<string, HelpDefinition> = {
@@ -154,6 +175,41 @@ const WRAPPER_HELP: Record<string, HelpDefinition> = {
     flags: [],
     examples: ["playwright-cli-axi context"],
   },
+  scroll: {
+    command: "scroll",
+    summary:
+      "Scroll the page without hand-writing JS: to a snapshot ref, to top/bottom, or by pixels.",
+    usage:
+      "playwright-cli-axi scroll [--to <ref> | --top | --bottom | --by <px>]",
+    args: [],
+    flags: [
+      { name: "--to", value: "<ref>", default: "", description: "snapshot ref to scrollIntoView" },
+      { name: "--top", value: "", default: "", description: "scroll to the top of the page" },
+      { name: "--bottom", value: "", default: "", description: "scroll to the bottom of the page" },
+      { name: "--by", value: "<px>", default: "", description: "scroll by a pixel delta (negative scrolls up)" },
+    ],
+    examples: [
+      "playwright-cli-axi scroll --to e55",
+      "playwright-cli-axi scroll --bottom",
+      "playwright-cli-axi scroll --by 600",
+    ],
+  },
+  wait: {
+    command: "wait",
+    summary:
+      "Wait for a Playwright page load state so post-navigation state is trustworthy without manual sleep.",
+    usage:
+      "playwright-cli-axi wait [--state load|domcontentloaded|networkidle] [--timeout <ms>]",
+    args: [],
+    flags: [
+      { name: "--state", value: "load|domcontentloaded|networkidle", default: "networkidle", description: "Playwright load state to wait for" },
+      { name: "--timeout", value: "<ms>", default: "5000", description: "maximum time to wait" },
+    ],
+    examples: [
+      "playwright-cli-axi wait --state networkidle",
+      "playwright-cli-axi click e5 --wait load",
+    ],
+  },
 };
 
 export function helpToStdout(command?: string): string {
@@ -173,6 +229,9 @@ export function helpToStdout(command?: string): string {
       ([name, summary]) => `${name}: ${summary}`,
     ),
     examples: CATALOG.next,
+    help: [
+      "Run 'playwright-cli-axi <command> --help' (or 'playwright-cli-axi help <command>') for command flags",
+    ],
   });
 }
 

@@ -157,6 +157,10 @@ tests until they are assigned to a wrapper command family.
 
 - `setup` — Install/repair the SessionStart hook for Claude Code and Codex
 - `context` — Print the token-budgeted session-start context slice (invoked by the hook)
+- `scroll` — Scroll the page without hand-writing JS: `--to <ref>` (scrollIntoView a snapshot ref), `--top`, `--bottom`, or `--by <px>`
+- `wait` — Wait for a Playwright load state (`load|domcontentloaded|networkidle`) so post-navigation state is trustworthy without manual `sleep`
+
+Navigation commands also accept a `--wait <state>` flag (e.g. `click e5 --wait networkidle`) that runs a bounded wait after the action.
 
 ## Ambient context (session hook)
 
@@ -395,7 +399,8 @@ closes the browser, checks that the WebM exists and is non-empty, and uses
 ## Environment variables
 
 - `XDG_STATE_HOME` — Override the base directory for sidecar state files (default: `~/.local/state`)
-- `PLAYWRIGHT_MCP_EXECUTABLE_PATH` — Path to a system Chromium browser for testing (e.g., `/usr/bin/chromium`)
+- `PLAYWRIGHT_MCP_EXECUTABLE_PATH` — Path to a system Chromium/Chrome/Edge. When unset, the wrapper auto-discovers one per OS; set it to override.
+- `PLAYWRIGHT_CLI_AXI_ARTIFACT_DIR` — Directory upstream runs in, so auto-generated snapshots (`.playwright-cli/page-*.yml`) land here instead of polluting your working directory. Defaults to an OS cache dir. Named screenshots/videos are resolved against your shell cwd, so they still land where you expect.
 - `NO_COLOR` — Set to `1` to disable colored output from upstream (always set by the wrapper)
 
 ## Generated skill
