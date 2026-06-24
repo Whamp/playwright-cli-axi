@@ -1,7 +1,10 @@
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 
-import { shouldInjectJson, stripJsonFlags } from '../domain/commandSurface.js';
+import {
+  shouldInjectJson,
+  stripWrapperFlags,
+} from '../domain/commandSurface.js';
 
 export interface UpstreamRun {
   argv: string[];
@@ -20,7 +23,7 @@ export interface CreateUpstreamRunnerOptions {
 
 export function createUpstreamRunner(options: CreateUpstreamRunnerOptions): UpstreamRunner {
   return async (argv) => {
-    const cleanArgv = stripJsonFlags(argv);
+    const cleanArgv = stripWrapperFlags(argv);
     const usedJson = shouldInjectJson(cleanArgv);
     const upstreamArgv = usedJson ? ['--json', ...cleanArgv] : cleanArgv;
     const scriptPath = resolveUpstreamScript();
@@ -58,6 +61,25 @@ export function resolveUpstreamVersion(): string {
   const require = createRequire(import.meta.url);
   try {
     const packageJsonPath = require.resolve('@playwright/cli/package.json');
+    const packageJson = require(packageJsonPath) as { version?: string };
+    return packageJson.version ?? 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
+/**
+ * Resolve the installed wrapper version.
+ *
+ * The build bundles every module into dist/bin/playwright-cli-axi.js, so
+ * import.meta.url is always <package>/dist/bin/playwright-cli-axi.js and the
+ * wrapper package.json lives exactly two levels up, whether the package is the
+ * development project root or an installed node_modules entry.
+ */
+export function resolveWrapperVersion(): string {
+  const require = createRequire(import.meta.url);
+  try {
+    const packageJsonPath = require.resolve('../../package.json');
     const packageJson = require(packageJsonPath) as { version?: string };
     return packageJson.version ?? 'unknown';
   } catch {
