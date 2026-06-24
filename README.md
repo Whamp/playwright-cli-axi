@@ -59,6 +59,15 @@ next[5]:
   - playwright-cli-axi list --all
 ```
 
+## Output improvements
+
+The wrapper enhances upstream output for agent usability:
+
+- **Flattened navigation results**: Commands like `open`, `goto`, and `click` return snapshot artifacts at the top level instead of buried under `result.result.snapshot`, making file paths immediately accessible.
+- **Readable snapshot rendering**: Snapshot content renders as readable single-layer text rather than double-escaped JSON-string-of-YAML, improving parseability.
+- **Enhanced error hints**: Usage errors for commands like `screenshot`, `pdf`, and `snapshot` include inline suggestions (e.g., `--filename <path>`) to reduce trial-and-error.
+- **Absolute snapshot paths**: Auto-generated snapshot file paths are returned as absolute paths so they're reliably findable regardless of the upstream artifact directory.
+
 ## Common commands
 
 The wrapper forwards all upstream `@playwright/cli` commands. Key commands:
@@ -95,8 +104,8 @@ server_rows[1]{title,browser,version,dataDir,workspace}:
   debug-server,chromium,1.48.0,/tmp/data,/workspace
 channel_sessions:
   count: 1
-channel_session_rows[1]{channel,dataDir,extension,endpoint}:
-  chrome,/tmp/chrome,yes,yes
+channel_session_rows[1]{channel,dataDir,extension,endpoint,usable}:
+  chrome,/tmp/chrome,yes,yes,yes
 ```
 
 Example `close` output preserves upstream single-session close status:
@@ -151,12 +160,13 @@ tests until they are assigned to a wrapper command family.
 | Network                | `requests`, `request`, `route`, `route-list`, `unroute`, `network-state-set`                                                                                                  |
 | DevTools and diagnostics | `console`, `run-code`, `show`, `pause-at`, `resume`, `step-over`, `generate-locator`, `highlight`, `tray`                                                                     |
 | Install and config     | `install`, `install-browser`, `config-print`                                                                                                                                  |
-| Video                  | `video-start`, `video-stop`, `video-chapter`, `video-show-actions`, `video-hide-actions`                                                                                      |
+| Video                  | `video-start`, `video-stop`, `video-chapter`, `video-chapters`, `video-status`, `video-show-actions`, `video-hide-actions`                                                                                      |
 
 ## Wrapper commands
 
 - `setup` — Install/repair the SessionStart hook for Claude Code and Codex
 - `context` — Print the token-budgeted session-start context slice (invoked by the hook)
+- `help <command>` — Alias for `<command> --help`; show help for specific commands
 - `scroll` — Scroll the page without hand-writing JS: `--to <ref>` (scrollIntoView a snapshot ref), `--top`, `--bottom`, or `--by <px>`
 - `wait` — Wait for a Playwright load state (`load|domcontentloaded|networkidle`) so post-navigation state is trustworthy without manual `sleep`
 
@@ -194,6 +204,8 @@ Supported video commands:
 playwright-cli-axi video-start [filename] [--size <width>x<height>]
 playwright-cli-axi video-show-actions [--duration <ms>] [--position top-left|top|top-right|bottom-left|bottom|bottom-right] [--cursor pointer|none]
 playwright-cli-axi video-chapter <title> [--description <text>] [--duration <ms>]
+playwright-cli-axi video-chapters
+playwright-cli-axi video-status
 playwright-cli-axi video-hide-actions
 playwright-cli-axi video-stop
 ```
@@ -206,6 +218,8 @@ playwright-cli-axi video-stop
 - `video-chapter <title>` — Add a chapter marker to the recording timeline
   - `--description <text>` — Optional chapter card description
   - `--duration <ms>` — Milliseconds to show the chapter card (default: upstream default)
+- `video-chapters` — Read the recorded chapter manifest with seek offsets relative to recording start
+- `video-status` — Print the full recording summary: status, files, chapter manifest, actions, and warnings
 - `video-show-actions` — Overlay action names and target highlights on the page
   - `--duration <ms>` — Milliseconds each annotation remains visible (default: 500)
   - `--position top-left|top|top-right|bottom-left|bottom|bottom-right` — Where to place action titles (default: top-right)
@@ -315,11 +329,21 @@ help[1]:
 
 ## Browser prerequisite
 
-If Chrome is missing, install the upstream browser:
+The wrapper auto-discovers a usable system browser per OS and injects it automatically:
+
+- **Linux**: Searches for Chromium/Chrome/Edge/Brave in standard locations including Arch `/usr/bin/chromium`, Ubuntu `/usr/bin/google-chrome-stable`, snap `/snap/bin/chromium`, and Firefox/Brave.
+- **macOS**: Checks for Chrome/Chrome Beta/Chrome Canary/Chromium in `/Applications/`.
+- **Windows**: Looks for Chrome/Edge in `Program Files` and `LocalAppData` paths.
+
+Channel sessions displayed by `list --all` include a `usable` field indicating whether a browser for that channel is installed and drivable.
+
+If no system browser is found, install the upstream browser:
 
 ```sh
 node dist/bin/playwright-cli-axi.js install-browser chrome-for-testing
 ```
+
+Or override auto-discovery with the `PLAYWRIGHT_MCP_EXECUTABLE_PATH` environment variable.
 
 If a system Chromium exists, you can also run smoke tests with:
 

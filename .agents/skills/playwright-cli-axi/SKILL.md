@@ -19,6 +19,9 @@ Use this skill when an agent needs to drive Playwright from a shell, inspect bro
 - `--version` prints a clean TOON version; `--full` bypasses result truncation; `--fields` selects additional list columns.
 - A usable system browser (Chromium/Chrome/Edge) is auto-detected per OS (Linux incl. Arch/Ubuntu, macOS, Windows); set `PLAYWRIGHT_MCP_EXECUTABLE_PATH` to override. Channel sessions show a derived `usable` field.
 - Auto-generated page snapshots land in an OS cache dir (overridable via `PLAYWRIGHT_CLI_AXI_ARTIFACT_DIR`), so they do not pollute the working directory; named screenshots/videos still resolve to the current directory.
+- Navigation commands return flattened results with snapshots at the top level (not buried under `result.result.snapshot`) for easier access.
+- Snapshot content renders as readable single-layer text rather than double-escaped JSON.
+- Usage errors for `screenshot`, `pdf`, and `snapshot` include inline suggestions for correct flag usage.
 - Get help with `npx -y playwright-cli-axi <command> --help` or the `help <command>` alias.
 
 ## Ambient context (two ways)
