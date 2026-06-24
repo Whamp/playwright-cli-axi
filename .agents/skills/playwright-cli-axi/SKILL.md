@@ -75,8 +75,6 @@ The wrapper enhances upstream output for agent usability:
 - **Definitive storage empty states**: storage read commands attach `found: false` when nothing matches, so emptiness is machine-readable instead of requiring display-string matching.
 - **Findable storage files**: `state-save`/`state-load` relative filenames are resolved against your shell cwd (not the daemon's artifact directory), so saved session state round-trips reliably across a close/open.
 
-
-
 ## Video workflow
 
 - `npx -y playwright-cli-axi video-start` — Start recording the current browser session to an optional WebM file.

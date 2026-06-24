@@ -271,6 +271,7 @@ the branch is **not safe to ship as-is**.
 Recorded as the "N-" (new) series. Severity: 🔴 critical / 🟠 high / 🟡 medium / 🟢 low.
 
 ### 🔴 N-9 — Relative video file paths are orphaned in the cache dir (REGRESSION)
+
 - **what-tried:** `video-start ./friction-hunt.webm --size 1280x720` (relative path, as an agent naturally writes), then `video-stop`.
 - **what-happened:** `video-stop` reported `status: ok` and `files: count: 1` (upstream DID record), but `./friction-hunt.webm` never appeared in the shell cwd. The file was silently written to `/tmp/playwright-cli-axi-cache/playwright-cli-axi/hunt.webm` (the daemon's spawn cwd). The entire friction-hunt recording was lost this way.
 - **why-it-hurts:** The agent requests a video, is told it succeeded, and the file is unreachable. This is the single most damaging failure mode for a video-first tool. Absolute paths work; relative paths are orphaned.
@@ -279,6 +280,7 @@ Recorded as the "N-" (new) series. Severity: 🔴 critical / 🟠 high / 🟡 me
 - **suggested-fix:** Absolutize the `video-start` positional filename against the shell cwd (extend `resolveRelativeFilePaths` or the video argv preprocessor to cover it), exactly as `--filename` already is. Add a regression test asserting `video-start ./rel.webm` produces a file findable from the shell cwd.
 
 ### 🔴 N-1 — The `wait` command and `--wait` flag are completely broken
+
 - **what-tried:** `wait load`, `wait networkidle`, `click e31 --wait networkidle`.
 - **what-happened:** Every invocation throws `error: kind upstream_error, message "SyntaxError: Unexpected identifier 'page'"`. The entire P-5 feature has been non-functional since it was added.
 - **why-it-hurts:** Agents rely on `--wait`/`wait` to make post-navigation state deterministic instead of `sleep`+re-poll. With it broken, there is no deterministic settle mechanism.
@@ -288,6 +290,7 @@ Recorded as the "N-" (new) series. Severity: 🔴 critical / 🟠 high / 🟡 me
 - **suggested-fix:** Change both code generators to the `async (page) => { ... }` form; add a live-upstream (or contract-regex) test asserting the emitted code is an async function expression.
 
 ### 🟠 N-2 — `--wait` reports failure after a successful navigation (false negative)
+
 - **what-tried:** `click e121 --wait networkidle` (Director role).
 - **what-happened:** The click itself navigated successfully to `/school-year/dashboard`, but the subsequent `--wait` threw the N-1 SyntaxError, so the overall result was an error. An agent reading the output would conclude the click failed when it actually succeeded.
 - **why-it-hurts:** False negatives on the exact action the agent cares about. Combined with N-1, `--wait` is worse than absent — it actively misleads.
@@ -296,6 +299,7 @@ Recorded as the "N-" (new) series. Severity: 🔴 critical / 🟠 high / 🟡 me
 - **suggested-fix:** Once N-1 is fixed the error goes away; defensively, a wait failure after a successful command should be a warning, not a hard failure that masks the primary result.
 
 ### 🟠 N-8 — `video-start` before a page is open silently records nothing
+
 - **what-tried:** `video-start ./out.webm` (before any `open`), then `open`, then `video-stop`.
 - **what-happened:** `video-stop` reported `files: count: 0, empty: upstream reported no videos were recorded`. No error at start time.
 - **why-it-hurts:** An agent that starts recording before navigating (a natural sequence) captures nothing and is never warned.
@@ -304,6 +308,7 @@ Recorded as the "N-" (new) series. Severity: 🔴 critical / 🟠 high / 🟡 me
 - **suggested-fix:** On `video-start`, warn (or exit 2 with guidance) when no browser page is currently open; document the open-first ordering.
 
 ### 🟡 N-4 — `open` returns `status: ok` before the SPA has rendered
+
 - **what-tried:** `open https://classroom-connect.app`, then immediately `snapshot`.
 - **what-happened:** `open` returned `status: ok`, but the snapshot showed only `generic [ref=e4]: Loading...`. The page was not actually ready.
 - **why-it-hurts:** Agents act on the post-`open` state assuming it's settled. The intended remedy (`--wait`/`wait`) is broken (N-1), so the only workaround is a blind `sleep`.
@@ -311,6 +316,7 @@ Recorded as the "N-" (new) series. Severity: 🔴 critical / 🟠 high / 🟡 me
 - **suggested-fix:** Make `open`/`goto` default to a `networkidle` (or `load`) settle, or at least offer `--wait` once N-1 is fixed; until then, document that SPAs need an explicit settle.
 
 ### 🟡 N-5 — `eval` output is double-nested
+
 - **what-tried:** `eval 42`, `eval window.location.href`.
 - **what-happened:** Result renders as `result: result: "42"` (two levels of `result`). `eval` is not in `NAVIGATION_COMMANDS`, so it falls through to `familyResultModel` which nests.
 - **why-it-hurts:** Same class of burying-the-value friction as the original P-1, newly observed for `eval`. Agents must dig through `result.result`.
@@ -318,6 +324,7 @@ Recorded as the "N-" (new) series. Severity: 🔴 critical / 🟠 high / 🟡 me
 - **suggested-fix:** Add `eval` (and other single-value `page interaction` commands) to a flat-result path so the value is top-level.
 
 ### 🟡 N-6 — Element refs require text-mining from the snapshot
+
 - **what-tried:** To click "View Demo", had to `snapshot | grep -oE 'ref=e[0-9]+'`.
 - **what-happened:** Refs are embedded in snapshot text; there is no structured "give me the ref for the element matching label/role X" lookup.
 - **why-it-hurts:** Targeting an element is fragile string parsing, not a query.
@@ -325,6 +332,7 @@ Recorded as the "N-" (new) series. Severity: 🔴 critical / 🟠 high / 🟡 me
 - **suggested-fix:** Add a ref-lookup command (e.g., `find "View Demo"` → `{ ref: "e31" }`) or return a structured element table from `snapshot`.
 
 ### 🟡 N-7 — No auto-snapshot after navigation; refs go stale silently
+
 - **what-tried:** Click a navigation link, then `click <old-ref>`.
 - **what-happened:** `error: Ref e16 not found in the current page snapshot. Try capturing new snapshot.` Every navigation invalidates all prior refs.
 - **why-it-hurts:** Agents must manually re-`snapshot` after every nav-producing action or hit stale-ref errors.
@@ -332,6 +340,7 @@ Recorded as the "N-" (new) series. Severity: 🔴 critical / 🟠 high / 🟡 me
 - **suggested-fix:** Auto-include a fresh (bounded) snapshot in the result of navigation-producing commands, so the next ref is always available without an extra round-trip.
 
 ### 🟢 N-3 — Error/command field is mislabeled when `--wait` is used
+
 - **what-tried:** `click e121 --wait networkidle`.
 - **what-happened:** The error's `command:` field read `--wait networkidle` instead of `click`.
 - **why-it-hurts:** Logs/diagnostics misattribute the failing command.
@@ -339,6 +348,7 @@ Recorded as the "N-" (new) series. Severity: 🔴 critical / 🟠 high / 🟡 me
 - **suggested-fix:** Label wait-aftermath errors with the originating command name.
 
 ### Re-confirmed positives
+
 - ✅ Browser auto-discovery works with NO env var (`open` succeeded on Arch/Omarchy with Chromium at `/usr/bin/chromium`).
 - ✅ No CWD pollution (auto-snapshots go to cache dir).
 - ✅ Named **screenshots** land in the shell cwd (`--filename`).
@@ -347,6 +357,7 @@ Recorded as the "N-" (new) series. Severity: 🔴 critical / 🟠 high / 🟡 me
 - ✅ `snapshot` renders the a11y tree as readable single-layer text.
 
 ### Verdict
+
 The 9 original findings are genuinely closed, but this hunt found **2 critical**
 (N-1 broken wait, N-9 orphaned relative video paths — N-9 being a direct
 regression of the F-3 fix) and **2 high** (N-2 false-negative wait, N-8 silent
@@ -381,6 +392,7 @@ dogfood the wrapper and log friction. Findings are the **C-** series.
 production `classroom-connect.app`. No env vars set (browser auto-discovered).
 
 ### Conversion path proven (end-to-end)
+
 1. `open` → landing; `snapshot` found CTAs (`Start Free Trial` `e16` → `/register`).
 2. `click e16 --wait networkidle` → `/register` form (Name/Email/Password).
 3. `fill` all three fields → `ok`.
@@ -398,6 +410,7 @@ cleanly. But the hunt surfaced **6 findings**, including one **critical** silent
 failure on the single most common form-testing action (submit-with-invalid-input).
 
 ### 🔴 C-1 — HTML5 form validation is invisible to the snapshot (double false-positive)
+
 - **what-tried:** `fill` an invalid email (`not-an-email`) + short password, then `click Create Account`.
 - **what-happened:** `click` returned `status: ok`. The post-submit `snapshot`
   showed the form **unchanged with no error** — the only signal was `[active]`
@@ -413,11 +426,12 @@ failure on the single most common form-testing action (submit-with-invalid-input
 - **suggested-fix:** on submit commands, detect a no-navigation outcome (URL
   unchanged after click) and/or surface `eval`-style `checkValidity()` /
   `:invalid` element state in the result, e.g. a `validation: { ok: false,
-  invalid_fields: [...] }` block when a click doesn't navigate. At minimum,
+invalid_fields: [...] }` block when a click doesn't navigate. At minimum,
   document that HTML5 validation bubbles are snapshot-invisible and the agent
   must assert via URL-change or `:invalid` selectors.
 
 ### 🟠 C-2 — `eval` is triple-nested AND context-confused (extends N-5)
+
 - **what-tried:** `eval "location.href"`; earlier `eval "async (page) => page.url()"`.
 - **what-happened:** `eval "location.href"` → `result: result: "\"https://classroom-connect.app/onboarding\""`
   — the value is **triple-escaped** (a stringified JSON string, two `result:`
@@ -438,6 +452,7 @@ failure on the single most common form-testing action (submit-with-invalid-input
   `async (page)=>{}` form, or clearly label contexts in their `--help`).
 
 ### 🟠 C-3 — Structured page data (KPIs, pricing, stats) requires text-mining the a11y tree (extends N-6)
+
 - **what-tried:** read the dashboard's KPIs ("how many classrooms? how many
   blockers?") and compare the pricing plans ($30/$50/$100 + features).
 - **what-happened:** the dashboard's pre-computed aggregates are in the DOM as
@@ -456,9 +471,10 @@ failure on the single most common form-testing action (submit-with-invalid-input
   `find "Classrooms"` → `{value:"0/0"}` lookup that pairs sibling label/value nodes.
 
 ### 🟡 C-4 — `--wait` returning ok doesn't guarantee the next read sees settled state (extends N-4)
+
 - **what-tried:** `click Create School e150 --wait networkidle`, then immediately `eval location.href`.
 - **what-happened:** the `click --wait` returned `ok`, but the next `eval
-  location.href` came back **empty** (mid-transition). A second `wait networkidle`
+location.href` came back **empty** (mid-transition). A second `wait networkidle`
   was required before the URL read as `/school-year/dashboard`.
 - **why-it-hurts:** `--wait networkidle`'s `ok` is not a reliable "the page is
   settled for the next command" signal for SPA client-side routing; follow-up
@@ -469,6 +485,7 @@ failure on the single most common form-testing action (submit-with-invalid-input
   and SPA route mounting may lag.
 
 ### 🟡 C-5 — `help <cmd>` and the real command surface disagree about existence
+
 - **what-tried:** `help get-url` (guessing a URL-read command).
 - **what-happened:** `help get-url` returned help metadata (`source: @playwright/cli`,
   `bytes: 6423`, `lines: 40`) — looking like a real command. But `get-url` itself
@@ -481,6 +498,7 @@ failure on the single most common form-testing action (submit-with-invalid-input
   check as the router, returning `Unknown command` consistently when `X` isn't real.
 
 ### 🟢 C-6 — `select` / `check` / `upload` form commands remain un-dogfooded
+
 - **what-tried:** looked for dropdowns/checkboxes on the registration + School
   Settings forms to exercise `select`/`check`/`upload` live.
 - **what-happened:** both real forms used **only textboxes + buttons** (the
@@ -495,6 +513,7 @@ failure on the single most common form-testing action (submit-with-invalid-input
   each form command's emitted selector/code string.
 
 ### ✅ What worked well (reinforce these)
+
 - **GOOD-C1** `fill` is clean and reliable — all fields filled, persisted across
   navigation (school name read back verbatim on the settings page).
 - **GOOD-C2** Navigation CTA → form → submit → redirect worked at every step;
@@ -507,6 +526,7 @@ failure on the single most common form-testing action (submit-with-invalid-input
   completed and was assertable end-to-end — a genuinely useful real task.
 
 ### Note on teardown
+
 The trial account + school (`PCA Test Preschool`, invite code `K5ZGWA`) were
 really created on production `classroom-connect.app`. They were **not** torn down
 (no delete-account flow was driven); the user can delete the trial from the
@@ -545,7 +565,7 @@ All 6 Option-C findings (C-1..C-6) are fixed, re-verified against a live
 - **C-4** ✓ New `--settle [state]` flag (default `networkidle`) waits for the
   load state AND polls `page.url()` to stability (uses `page.waitForTimeout`,
   not the absent node `setTimeout`). Live: the read after `click Create School
-  --settle` returned the dashboard URL without a second manual wait (the empty
+--settle` returned the dashboard URL without a second manual wait (the empty
   mid-transition read that originally found C-4 is gone). `--wait` is documented
   as network-only.
 - **C-5** ✓ `help <X>`/`<X> --help` now route through the same `isKnownCommand`
@@ -614,7 +634,7 @@ config. This principle-7 surface is solid.
 - **what-tried:** `state-save ./state.json` then `state-load ./state.json`
   from the shell cwd.
 - **what-happened:** `state-save ./state.json` returned `result: "- [Storage
-  state](./state.json)"` (success) but NO file appeared in the shell cwd; it
+state](./state.json)"` (success) but NO file appeared in the shell cwd; it
   was written to `/tmp/playwright-cli-axi-cache/playwright-cli-axi/state.json`
   (the daemon spawn cwd). `state-load ./state.json` then failed with
   `ENOENT ... '/tmp/playwright-cli-axi-cache/playwright-cli-axi/state.json'`
@@ -681,7 +701,7 @@ config. This principle-7 surface is solid.
   cannot reliably assert emptiness.
 - **AXI-principle-violated:** Principle 5 (definitive empty states).
 - **suggested-fix:** Add a definitive `count: 0` / `items: []` (or `found:
-  false`) structure for the empty/not-found storage read paths.
+false`) structure for the empty/not-found storage read paths.
 
 ### H3-5 ℹ️ INFO (known) — `--raw` flag has no user-visible effect
 
@@ -744,6 +764,7 @@ AXI-alignment behavior remain green; eval still flattens (C-2), navigation
 snapshots stay absolute (P-1), video-start still guards/absolutizes (N-8/N-9).
 
 **Live verification (re-driven after fixes):**
+
 - `state-save ./state.json` → file in shell cwd; `state-load ./state.json`
   restores `cookie-get sc` → `sc=hello` and `localstorage-get ls` → `ls=hello`.
 - `cookie-list`/`localstorage-get`/`requests`/`route-list`/`network-state-set`
