@@ -12,6 +12,7 @@ import type { UpstreamRunner } from "../upstream/runner.js";
 import { errorToStdout } from "../presenter/errors.js";
 import { toToon, type ToonValue } from "../presenter/toon.js";
 import { normalizeUpstreamError } from "../upstream/errors.js";
+import { normalizeSessions } from "./sessions.js";
 
 const POSITIONS = [
   "top-left",
@@ -23,11 +24,21 @@ const POSITIONS = [
 ] as const;
 const CURSORS = ["pointer", "none"] as const;
 
+export type PageOpenState = "open" | "closed" | "unknown";
+
 export interface VideoCommandContext {
   argv: string[];
   upstream: UpstreamRunner;
   store: VideoStore;
   now: () => Date;
+  /**
+   * N-8: whether a browser page is currently open, so `video-start` can guard
+   * against starting a recording that captures nothing. Injectable so tests
+   * can fix page-open state without routing the guard's `list` probe through
+   * the command-under-test upstream queue; production leaves it unset so the
+   * default list-based check runs.
+   */
+  pageOpenChecker?: (upstream: UpstreamRunner) => Promise<PageOpenState>;
 }
 
 export async function handleVideoCommand(
@@ -95,6 +106,30 @@ export async function handleVideoCommand(
         help: ["playwright-cli-axi video-stop"],
       }),
     };
+  }
+
+  /*
+   * N-8: starting a recording with no open browser page captures nothing —
+   * upstream only reports "no videos were recorded" at stop time, far too
+   * late. Guard at start time so the agent gets immediate, actionable guidance
+   * to open a page first. Only a definitive "closed" blocks; an inconclusive
+   * "unknown" (e.g. a flaky list call) fails open so it never blocks a start.
+   */
+  if (command === "video-start" && state.recording.status !== "active") {
+    const checker = context.pageOpenChecker ?? hasOpenBrowserPage;
+    const pageState = await checker(context.upstream);
+    if (pageState === "closed") {
+      return {
+        exitCode: 2,
+        stdout: errorToStdout({
+          kind: "usage",
+          message:
+            "video-start requires an open browser page to record from; open one first",
+          command: context.argv.join(" "),
+          help: ["playwright-cli-axi open <url>", "playwright-cli-axi list"],
+        }),
+      };
+    }
   }
 
   const run = await context.upstream(stripWrapperFlags(context.argv));
@@ -541,6 +576,26 @@ function videoStartNoOp(
       },
     } as ToonValue),
   };
+}
+
+/**
+ * N-8: whether a browser page is currently open, so `video-start` can guard
+ * against starting a recording that will capture nothing. Queries upstream
+ * `list`; returns "closed" only when no open browser is reported, "unknown"
+ * when the check itself fails (so callers can fail open without blocking).
+ */
+async function hasOpenBrowserPage(
+  upstream: UpstreamRunner,
+): Promise<"open" | "closed" | "unknown"> {
+  try {
+    const run = await upstream(["list", "--json"]);
+    const parsed = parseUpstreamOutput(run.stdout, run.stderr, run.exitCode);
+    if (parsed.isError || run.exitCode !== 0) return "unknown";
+    const value = parsed.kind === "json" ? parsed.value : undefined;
+    return normalizeSessions(value).browsers.count > 0 ? "open" : "closed";
+  } catch {
+    return "unknown";
+  }
 }
 
 export function extractVideoLinks(

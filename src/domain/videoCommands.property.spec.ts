@@ -280,6 +280,7 @@ describe("videoCommands properties", () => {
             upstream,
             store,
             now: () => new Date("2026-06-23T20:00:00.000Z"),
+            pageOpenChecker: async () => "open",
           });
 
           if (step.kind === "start" && model.recording.status === "active") {

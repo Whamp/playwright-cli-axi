@@ -257,3 +257,112 @@ All 9 findings closed and re-verified against a live `classroom-connect.app` wal
 - **P-5** ✓ New `wait` command + `--wait <state>` flag on navigation commands (bounded Playwright `waitForLoadState`), removing manual `sleep`+re-poll.
 
 Verification: typecheck clean; 189 tests (+41 new); 52 property tests stable across 2 runs; build; skill gen/check; 0 production vulnerabilities; Chromium smoke video (VP8 320×240); live re-dogfood.
+
+---
+
+## Friction Hunt #2 (2026-06-24, branch `feature/dogfooding-fixes`)
+
+A genuine end-to-end friction hunt driving classroom-connect.app as a real task
+("open → Director demo → Classrooms page → verify"), logging every stumble in
+real time. The prior "re-dogfood" only proved each of the 9 fixes in isolation;
+this pass found **9 NEW findings**, including two critical regressions that mean
+the branch is **not safe to ship as-is**.
+
+Recorded as the "N-" (new) series. Severity: 🔴 critical / 🟠 high / 🟡 medium / 🟢 low.
+
+### 🔴 N-9 — Relative video file paths are orphaned in the cache dir (REGRESSION)
+- **what-tried:** `video-start ./friction-hunt.webm --size 1280x720` (relative path, as an agent naturally writes), then `video-stop`.
+- **what-happened:** `video-stop` reported `status: ok` and `files: count: 1` (upstream DID record), but `./friction-hunt.webm` never appeared in the shell cwd. The file was silently written to `/tmp/playwright-cli-axi-cache/playwright-cli-axi/hunt.webm` (the daemon's spawn cwd). The entire friction-hunt recording was lost this way.
+- **why-it-hurts:** The agent requests a video, is told it succeeded, and the file is unreachable. This is the single most damaging failure mode for a video-first tool. Absolute paths work; relative paths are orphaned.
+- **root cause:** The F-3 fix moved the upstream spawn cwd to a cache dir so auto-snapshots stop polluting the repo — but `video-start`'s positional filename is NOT absolutized against the shell cwd (only `--filename`/`--path` are, via `resolveRelativeFilePaths`). So `./out.webm` resolves daemon-side to the cache dir.
+- **AXI-principle-violated:** Principle 1 (content-first: the agent must be able to trust the returned path) + Principle 5 (definitive empty/success states — `files: count 1` is a false positive).
+- **suggested-fix:** Absolutize the `video-start` positional filename against the shell cwd (extend `resolveRelativeFilePaths` or the video argv preprocessor to cover it), exactly as `--filename` already is. Add a regression test asserting `video-start ./rel.webm` produces a file findable from the shell cwd.
+
+### 🔴 N-1 — The `wait` command and `--wait` flag are completely broken
+- **what-tried:** `wait load`, `wait networkidle`, `click e31 --wait networkidle`.
+- **what-happened:** Every invocation throws `error: kind upstream_error, message "SyntaxError: Unexpected identifier 'page'"`. The entire P-5 feature has been non-functional since it was added.
+- **why-it-hurts:** Agents rely on `--wait`/`wait` to make post-navigation state deterministic instead of `sleep`+re-poll. With it broken, there is no deterministic settle mechanism.
+- **root cause:** `runWaitCommand`/`runPageWait` emit `await page.waitForLoadState(...)` as a bare statement, but upstream `run-code` wraps the snippet in a **non-async** function body, so `await` is a syntax error. Proven fix: emit an async arrow function expression instead — `async (page) => { await page.waitForLoadState(...) }` returns `status: ok`.
+- **AXI-principle-violated:** Principle 5 (a command that always errors is the opposite of a definitive state) + Principle 10 (the advertised contract is a lie).
+- **why tests missed it:** Every unit test injects a mock upstream that never validates the generated code string against upstream's real eval contract.
+- **suggested-fix:** Change both code generators to the `async (page) => { ... }` form; add a live-upstream (or contract-regex) test asserting the emitted code is an async function expression.
+
+### 🟠 N-2 — `--wait` reports failure after a successful navigation (false negative)
+- **what-tried:** `click e121 --wait networkidle` (Director role).
+- **what-happened:** The click itself navigated successfully to `/school-year/dashboard`, but the subsequent `--wait` threw the N-1 SyntaxError, so the overall result was an error. An agent reading the output would conclude the click failed when it actually succeeded.
+- **why-it-hurts:** False negatives on the exact action the agent cares about. Combined with N-1, `--wait` is worse than absent — it actively misleads.
+- **root cause:** `runGenericCommand` issues the click, then calls `runPageWait`, and on any wait error returns the error result, discarding the click success.
+- **AXI-principle-violated:** Principle 5.
+- **suggested-fix:** Once N-1 is fixed the error goes away; defensively, a wait failure after a successful command should be a warning, not a hard failure that masks the primary result.
+
+### 🟠 N-8 — `video-start` before a page is open silently records nothing
+- **what-tried:** `video-start ./out.webm` (before any `open`), then `open`, then `video-stop`.
+- **what-happened:** `video-stop` reported `files: count: 0, empty: upstream reported no videos were recorded`. No error at start time.
+- **why-it-hurts:** An agent that starts recording before navigating (a natural sequence) captures nothing and is never warned.
+- **root cause:** Upstream recording attaches to a page context; with no page open there is nothing to capture, and the wrapper surfaces no pre-check.
+- **AXI-principle-violated:** Principle 5 (definitive empty state — here the empty state arrives too late, at stop, with no start-time guard).
+- **suggested-fix:** On `video-start`, warn (or exit 2 with guidance) when no browser page is currently open; document the open-first ordering.
+
+### 🟡 N-4 — `open` returns `status: ok` before the SPA has rendered
+- **what-tried:** `open https://classroom-connect.app`, then immediately `snapshot`.
+- **what-happened:** `open` returned `status: ok`, but the snapshot showed only `generic [ref=e4]: Loading...`. The page was not actually ready.
+- **why-it-hurts:** Agents act on the post-`open` state assuming it's settled. The intended remedy (`--wait`/`wait`) is broken (N-1), so the only workaround is a blind `sleep`.
+- **AXI-principle-violated:** Principle 5.
+- **suggested-fix:** Make `open`/`goto` default to a `networkidle` (or `load`) settle, or at least offer `--wait` once N-1 is fixed; until then, document that SPAs need an explicit settle.
+
+### 🟡 N-5 — `eval` output is double-nested
+- **what-tried:** `eval 42`, `eval window.location.href`.
+- **what-happened:** Result renders as `result: result: "42"` (two levels of `result`). `eval` is not in `NAVIGATION_COMMANDS`, so it falls through to `familyResultModel` which nests.
+- **why-it-hurts:** Same class of burying-the-value friction as the original P-1, newly observed for `eval`. Agents must dig through `result.result`.
+- **AXI-principle-violated:** Principle 1 (content-first).
+- **suggested-fix:** Add `eval` (and other single-value `page interaction` commands) to a flat-result path so the value is top-level.
+
+### 🟡 N-6 — Element refs require text-mining from the snapshot
+- **what-tried:** To click "View Demo", had to `snapshot | grep -oE 'ref=e[0-9]+'`.
+- **what-happened:** Refs are embedded in snapshot text; there is no structured "give me the ref for the element matching label/role X" lookup.
+- **why-it-hurts:** Targeting an element is fragile string parsing, not a query.
+- **AXI-principle-violated:** Principle 1.
+- **suggested-fix:** Add a ref-lookup command (e.g., `find "View Demo"` → `{ ref: "e31" }`) or return a structured element table from `snapshot`.
+
+### 🟡 N-7 — No auto-snapshot after navigation; refs go stale silently
+- **what-tried:** Click a navigation link, then `click <old-ref>`.
+- **what-happened:** `error: Ref e16 not found in the current page snapshot. Try capturing new snapshot.` Every navigation invalidates all prior refs.
+- **why-it-hurts:** Agents must manually re-`snapshot` after every nav-producing action or hit stale-ref errors.
+- **AXI-principle-violated:** Principle 5.
+- **suggested-fix:** Auto-include a fresh (bounded) snapshot in the result of navigation-producing commands, so the next ref is always available without an extra round-trip.
+
+### 🟢 N-3 — Error/command field is mislabeled when `--wait` is used
+- **what-tried:** `click e121 --wait networkidle`.
+- **what-happened:** The error's `command:` field read `--wait networkidle` instead of `click`.
+- **why-it-hurts:** Logs/diagnostics misattribute the failing command.
+- **root cause:** The wait-error label is built from `["--wait", state]` rather than the originating command.
+- **suggested-fix:** Label wait-aftermath errors with the originating command name.
+
+### Re-confirmed positives
+- ✅ Browser auto-discovery works with NO env var (`open` succeeded on Arch/Omarchy with Chromium at `/usr/bin/chromium`).
+- ✅ No CWD pollution (auto-snapshots go to cache dir).
+- ✅ Named **screenshots** land in the shell cwd (`--filename`).
+- ✅ `scroll` genuinely scrolls (verified `window.scrollY` 0 → 1000 on a scrollable page; the Classrooms page simply fit the viewport).
+- ✅ `video-chapters` returns a readable manifest via the CLI.
+- ✅ `snapshot` renders the a11y tree as readable single-layer text.
+
+### Verdict
+The 9 original findings are genuinely closed, but this hunt found **2 critical**
+(N-1 broken wait, N-9 orphaned relative video paths — N-9 being a direct
+regression of the F-3 fix) and **2 high** (N-2 false-negative wait, N-8 silent
+no-record) issues. **The branch must not ship until at least N-1 and N-9 are
+fixed**, because N-9 breaks the project's #1 priority (reliable video file
+output) and N-1 ships an advertised feature that always errors.
+
+---
+
+## Friction Hunt #2 — Resolution (2026-06-24, branch `feature/dogfooding-fixes`)
+
+The 4 ship-blocker/high findings from Friction Hunt #2 are closed and re-verified against a live browser:
+
+- **N-1** ✓ `wait`/`--wait` fixed. Root cause was emitting a bare `await page.waitForLoadState(...)` statement, which upstream `run-code` rejects (`SyntaxError: Unexpected identifier 'page'`) because it wraps the snippet in a non-async body invoked with `page`. Both generators now emit an `async (page) => { ... }` arrow expression (shared `waitForLoadStateCode` seam). Live: `wait load`, `wait networkidle`, and `click <ref> --wait load` all return `status: ok`. A contract test pins the emitted shape and proves it parses as a function expression.
+- **N-2** ✓ A `--wait` failure after a successful navigation command no longer masks the success. `runGenericCommand` now surfaces wait-aftermath failures as a bounded `wait_warning` field on the exit-0 result instead of overwriting it with an error. Unit test proves exit 0 + primary result + `wait_warning` when the wait errors.
+- **N-8** ✓ `video-start` with no open browser page now exits 2 with guidance (`open <url>` / `list`) instead of silently starting a recording that captures nothing. The guard queries upstream `list` (fail-open on an inconclusive check). Live: `video-start` before `open` → exit 2 with the guidance message; after `open` → records normally.
+- **N-9** ✓ Relative `video-start` filenames now land in the shell cwd. Root cause was the F-3 artifact-dir change moving the daemon spawn cwd to a cache dir without absolutizing the video-start positional (only `--filename`/`--path` were). `resolveRelativeFilePaths` now absolutizes the video-start positional against the shell cwd. Live: `video-start ./rel.webm` (after `open`) followed by `video-stop` produces a non-empty WebM findable from the shell cwd, with NO cache-dir orphan.
+
+Remaining open friction-hunt #2 findings (noted but not in this fix's scope): N-3 (mislabeled `command:` field — moot once N-1 fixed the underlying error), N-4 (SPA `open` settle), N-5 (`eval` double-nesting), N-6 (ref text-mining), N-7 (no auto-snapshot after navigation).

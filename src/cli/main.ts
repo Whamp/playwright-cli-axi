@@ -12,6 +12,7 @@ import {
   sessionFromArgv,
   stripJsonFlags,
   stripWrapperFlags,
+  waitForLoadStateCode,
 } from "../domain/commandSurface.js";
 import { normalizeSessions } from "../domain/sessions.js";
 import {
@@ -257,20 +258,20 @@ async function runGenericCommand(
   const command = commandName(argv) ?? argv[0] ?? "command";
   // P-5: optionally wait for the page to settle after a navigation-producing
   // command, so the post-action state is trustworthy without manual sleep.
+  // N-2: a wait failure must NOT mask the primary command's success — surface
+  // it as a bounded `wait_warning` on the ok result instead.
+  let waitWarning: string | undefined;
   if (wait) {
     const waitResult = await runPageWait(wait, deps);
-    if (waitResult.kind === "error") return waitResult.result;
+    if (waitResult.kind === "error") waitWarning = waitResult.warning;
   }
-  return {
-    exitCode: 0,
-    stdout: toToon(
-      commandSuccessModel(command, parsed, {
-        full,
-        fields,
-        artifactBase: run.artifactBase,
-      }),
-    ),
-  };
+  const model = commandSuccessModel(command, parsed, {
+    full,
+    fields,
+    artifactBase: run.artifactBase,
+  });
+  if (waitWarning) model.wait_warning = waitWarning;
+  return { exitCode: 0, stdout: toToon(model) };
 }
 
 async function runHelpCommand(
@@ -413,7 +414,7 @@ async function runWaitCommand(
     );
   if (!/^[1-9]\d*$/.test(timeout))
     return usageError("wait", "--timeout must be a positive integer (ms)");
-  const code = `await page.waitForLoadState('${state}', { timeout: ${timeout} }).catch(() => {})`;
+  const code = waitForLoadStateCode(state, Number(timeout));
   const run = await deps.upstream(["run-code", code]);
   const parsed = parseUpstreamOutput(run.stdout, run.stderr, run.exitCode);
   if (parsed.isError || run.exitCode !== 0)
@@ -429,19 +430,26 @@ async function runWaitCommand(
   };
 }
 
-/** Issue a bounded page wait after a navigation command (P-5). */
+/** Issue a bounded page wait after a navigation command (P-5). N-2: a wait
+ * failure here is reported as a warning, never a hard error, so it cannot mask
+ * the primary command's success. */
 async function runPageWait(
   state: string,
   deps: Required<CliDependencies>,
-): Promise<{ kind: "ok" } | { kind: "error"; result: CliResult }> {
-  const code = `await page.waitForLoadState('${state}', { timeout: 5000 }).catch(() => {})`;
+): Promise<{ kind: "ok" } | { kind: "error"; warning: string }> {
+  const code = waitForLoadStateCode(state, 5000);
   const run = await deps.upstream(["run-code", code]);
   const parsed = parseUpstreamOutput(run.stdout, run.stderr, run.exitCode);
-  if (parsed.isError || run.exitCode !== 0)
+  if (parsed.isError || run.exitCode !== 0) {
+    const detail =
+      successTextOf(parsed) ||
+      (parsed.kind === "text" ? parsed.text : run.stderr) ||
+      "upstream error";
     return {
       kind: "error",
-      result: normalizeUpstreamError(["--wait", state], run, parsed),
+      warning: `post-action wait for '${state}' failed: ${detail}`,
     };
+  }
   return { kind: "ok" };
 }
 

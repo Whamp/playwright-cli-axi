@@ -11,6 +11,7 @@ import {
   shouldInjectJson,
   stripJsonFlags,
   stripWrapperFlags,
+  waitForLoadStateCode,
 } from "./commandSurface.js";
 
 describe("commandSurface", () => {
@@ -153,6 +154,46 @@ describe("resolveRelativeFilePaths (F-3)", () => {
       resolveRelativeFilePaths(["goto", "https://example.com"], "/repo"),
     ).toEqual(["goto", "https://example.com"]);
   });
+
+  // N-9: the video-start positional filename is a named output file and must
+  // resolve to the shell cwd so the recording is findable, even though the
+  // daemon runs in the artifact cache dir.
+  it("N-9: absolutizes the video-start positional filename against the shell cwd", () => {
+    expect(
+      resolveRelativeFilePaths(["video-start", "./out.webm"], "/repo"),
+    ).toEqual(["video-start", "/repo/./out.webm"]);
+  });
+
+  it("N-9: absolutizes the video-start positional filename with inline --size=value", () => {
+    expect(
+      resolveRelativeFilePaths(
+        ["video-start", "--size=800x600", "./out.webm"],
+        "/repo",
+      ),
+    ).toEqual(["video-start", "--size=800x600", "/repo/./out.webm"]);
+  });
+
+  it("N-9: absolutizes the video-start positional filename wherever it appears", () => {
+    expect(
+      resolveRelativeFilePaths(
+        ["video-start", "./out.webm", "--size", "800x600"],
+        "/repo",
+      ),
+    ).toEqual(["video-start", "/repo/./out.webm", "--size", "800x600"]);
+  });
+
+  it("N-9: leaves an absolute video-start filename untouched", () => {
+    expect(
+      resolveRelativeFilePaths(["video-start", "/abs/out.webm"], "/repo"),
+    ).toEqual(["video-start", "/abs/out.webm"]);
+  });
+
+  it("N-9: does not absolutize non-file command positionals (e.g. click refs)", () => {
+    expect(resolveRelativeFilePaths(["click", "e16"], "/repo")).toEqual([
+      "click",
+      "e16",
+    ]);
+  });
 });
 
 describe("parseWaitFlag (P-5)", () => {
@@ -170,5 +211,35 @@ describe("parseWaitFlag (P-5)", () => {
     expect(isValidWaitState("domcontentloaded")).toBe(true);
     expect(isValidWaitState("networkidle")).toBe(true);
     expect(isValidWaitState("idle")).toBe(false);
+  });
+});
+
+describe("waitForLoadStateCode (N-1)", () => {
+  // N-1: upstream `run-code` wraps the snippet in a NON-async function body and
+  // invokes it with `page`, so a bare `await ...` is a SyntaxError. The emitted
+  // snippet MUST be an async arrow function expression that receives `page`.
+  it("emits an async arrow function expression that receives page", () => {
+    const code = waitForLoadStateCode("load", 2000);
+    expect(code.startsWith("async (page) =>")).toBe(true);
+    expect(code).toContain("page.waitForLoadState('load'");
+    expect(code).toContain("timeout: 2000");
+    // The broken form began with a bare `await`.
+    expect(code.startsWith("await ")).toBe(false);
+  });
+
+  it("produces a syntactically valid async arrow function", () => {
+    const code = waitForLoadStateCode("networkidle", 5000);
+    // `new Function("return " + expr)` parses expr as an expression and would
+    // throw on a syntax error (e.g. a bare top-level `await`).
+    const fn = new Function(`return ${code}`)();
+    expect(typeof fn).toBe("function");
+  });
+
+  it("does not emit a bare top-level await (the regression that shipped)", () => {
+    for (const state of ["load", "domcontentloaded", "networkidle"]) {
+      const code = waitForLoadStateCode(state, 1000);
+      // The regression was `await page.waitForLoadState(...)` with no wrapper.
+      expect(/^await\s/.test(code)).toBe(false);
+    }
   });
 });

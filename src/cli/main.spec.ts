@@ -829,6 +829,11 @@ describe("runCli", () => {
     expect(harness.upstreamRuns[0]?.[1]).toContain(
       "waitForLoadState('networkidle'",
     );
+    // N-1: the snippet MUST be an async arrow function expression (upstream
+    // run-code wraps it in a non-async body, so a bare `await` is a SyntaxError).
+    expect(harness.upstreamRuns[0]?.[1]?.startsWith("async (page) =>")).toBe(
+      true,
+    );
   });
 
   it("P-5: --wait on a generic command issues a post-action wait", async () => {
@@ -841,7 +846,45 @@ describe("runCli", () => {
     // wrapper-only --wait is stripped from the forwarded click argv
     expect(harness.upstreamRuns[0]).toEqual(["click", "e5"]);
     expect(harness.upstreamRuns[1]?.[0]).toBe("run-code");
+    // N-1: the post-action wait snippet must be the async arrow form too.
+    expect(harness.upstreamRuns[1]?.[1]?.startsWith("async (page) =>")).toBe(
+      true,
+    );
     expect(result.stdout).toContain("command: click");
+  });
+
+  it("N-2: a --wait failure after a successful command does not mask the success", async () => {
+    const harness = await createHarness([
+      { stdout: "clicked" },
+      { stdout: "", exitCode: 1, stderr: "wait blew up" },
+    ]);
+    const result = await harness.run(["click", "e5", "--wait", "load"]);
+    // The click itself succeeded, so the result must stay exit 0 with the
+    // primary result intact and a visible wait_warning (not a hard error).
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("command: click");
+    expect(result.stdout).toContain("wait_warning:");
+    expect(result.stdout).toContain("post-action wait for 'load' failed");
+    expect(result.stdout).not.toContain("kind: upstream_error");
+  });
+
+  it("N-8: video-start with no open browser page warns with guidance (exit 2)", async () => {
+    const harness = await createHarness([], { pageOpen: "closed" });
+    const result = await harness.run(["video-start", "./out.webm"]);
+    expect(result.exitCode).toBe(2);
+    expect(result.stdout).toContain("requires an open browser page");
+    expect(result.stdout).toContain("playwright-cli-axi open <url>");
+    // No recording was started, so no upstream video-start call was forwarded.
+    expect(harness.upstreamRuns).toEqual([]);
+  });
+
+  it("N-8: video-start proceeds when a browser page is open", async () => {
+    const harness = await createHarness([
+      { stdout: "Video recording started." },
+    ]);
+    const result = await harness.run(["video-start", "./out.webm"]);
+    expect(result.exitCode).toBe(0);
+    expect(harness.upstreamRuns[0]).toEqual(["video-start", "./out.webm"]);
   });
 
   it("P-4: scroll --to without value is a usage error", async () => {
@@ -903,10 +946,14 @@ interface FakeRun {
   stderr?: string;
 }
 
-async function createHarness(fakeRuns: FakeRun[]) {
+async function createHarness(
+  fakeRuns: FakeRun[],
+  options: { pageOpen?: "open" | "closed" } = {},
+) {
   const stateRoot = await mkdtemp(join(tmpdir(), "playwright-cli-axi-test-"));
   const cwd = join(stateRoot, "workspace");
   const upstreamRuns: string[][] = [];
+  const pageOpen = options.pageOpen ?? "open";
   const deps: CliDependencies = {
     cwd,
     executablePath: "/home/will/.local/bin/playwright-cli-axi",
@@ -915,6 +962,23 @@ async function createHarness(fakeRuns: FakeRun[]) {
     upstreamVersion: "0.1.14",
     wrapperVersion: "0.1.0",
     upstream: async (argv): Promise<UpstreamRun> => {
+      // N-8: video-start's page-open guard probes `list --json` before starting
+      // a recording. Answer it with an open browser WITHOUT consuming the
+      // command-under-test response queue or recording it in upstreamRuns
+      // (the probe is an internal guard, not the command under test). The
+      // closed-page guard path is covered directly in videoCommands.spec.ts.
+      if (argv[0] === "list" && argv[1] === "--json") {
+        return {
+          argv,
+          exitCode: 0,
+          stdout:
+            pageOpen === "open"
+              ? '{"browsers":[{"id":"1","name":"browser"}]}'
+              : '{"browsers":[]}',
+          stderr: "",
+          usedJson: true,
+        };
+      }
       upstreamRuns.push(argv);
       const next = fakeRuns.shift();
       if (!next) throw new Error(`unexpected upstream call: ${argv.join(" ")}`);

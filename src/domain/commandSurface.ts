@@ -71,10 +71,20 @@ export function stripJsonFlags(argv: string[]): string[] {
 const FILE_VALUE_FLAGS = new Set(["--filename", "--path"]);
 
 /**
- * F-3: resolve relative file paths against the agent's shell cwd so named
+ * Commands whose first positional argument is a file path the agent names
+ * explicitly (e.g. `video-start ./out.webm`). Like `--filename`, these must be
+ * resolved against the shell cwd so the file lands where the agent expects
+ * regardless of the daemon's spawn cwd (N-9: otherwise a relative positional is
+ * resolved daemon-side and orphaned in the artifact cache dir).
+ */
+const COMMAND_FILE_POSITIONALS = new Set(["video-start"]);
+
+/**
+ * F-3 / N-9: resolve relative file paths against the agent's shell cwd so named
  * screenshots/pdfs/videos land where the agent expects even though upstream
  * runs with a different (artifact-dir) cwd. Absolute paths and non-file args
- * are passed through untouched. Inline `flag=value` forms are handled too.
+ * are passed through untouched. Inline `flag=value` forms are handled too, as is
+ * the `video-start` positional filename.
  */
 export function resolveRelativeFilePaths(
   argv: string[],
@@ -85,6 +95,11 @@ export function resolveRelativeFilePaths(
   const absolutize = (p: string) =>
     isAbsolute(p) || p === "" ? p : `${shellCwd}/${p}`;
   const result: string[] = [];
+  const cmdIdx = commandIndex(argv);
+  const cmdName = cmdIdx === -1 ? undefined : argv[cmdIdx];
+  const resolveFilePositional =
+    cmdName !== undefined && COMMAND_FILE_POSITIONALS.has(cmdName);
+  let positionalSeenAfterCommand = 0;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]!;
     let matched = false;
@@ -104,7 +119,27 @@ export function resolveRelativeFilePaths(
         break;
       }
     }
-    if (!matched) result.push(arg);
+    if (!matched) {
+      // N-9: the video-start positional filename is a named output file.
+      if (
+        resolveFilePositional &&
+        index > cmdIdx &&
+        !arg.startsWith("-") &&
+        positionalSeenAfterCommand === 0
+      ) {
+        result.push(absolutize(arg));
+        positionalSeenAfterCommand += 1;
+        continue;
+      }
+      result.push(arg);
+      if (
+        resolveFilePositional &&
+        index > cmdIdx &&
+        !arg.startsWith("-")
+      ) {
+        positionalSeenAfterCommand += 1;
+      }
+    }
   }
   return result;
 }
@@ -157,6 +192,22 @@ export function parseWaitFlag(argv: string[]): string | undefined {
 
 export function isValidWaitState(state: string): boolean {
   return ["load", "domcontentloaded", "networkidle"].includes(state);
+}
+
+/**
+ * N-1: build the Playwright `run-code` snippet that waits for a load state.
+ *
+ * Upstream `run-code` wraps the snippet in a NON-async function body and invokes
+ * it with a single `page` argument, so a bare `await ...` is a SyntaxError
+ * (`Unexpected identifier 'page'`). The snippet MUST be an async arrow function
+ * expression that receives `page`. Exported so a contract test can pin the
+ * emitted shape (the gap that let the broken bare-`await` form ship).
+ */
+export function waitForLoadStateCode(
+  state: string,
+  timeoutMs: number,
+): string {
+  return `async (page) => { await page.waitForLoadState('${state}', { timeout: ${timeoutMs} }).catch(() => {}); }`;
 }
 
 /**

@@ -214,6 +214,7 @@ playwright-cli-axi video-stop
 
 - `video-start [filename]` — Start recording to an optional WebM file path
   - `--size <width>x<height>` — Video frame size (default: fit 800x800)
+  - Requires an open browser page; `open` one first or the command exits 2 with guidance (recording attaches to the active page, so starting before `open` captures nothing). Relative filenames resolve to your shell cwd, so `video-start ./out.webm` lands in the current directory.
 - `video-stop` — Stop recording and report typed `video_files` separately from other artifacts
 - `video-chapter <title>` — Add a chapter marker to the recording timeline
   - `--description <text>` — Optional chapter card description
