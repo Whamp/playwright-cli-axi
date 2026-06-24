@@ -218,7 +218,7 @@ const WRAPPER_HELP: Record<string, HelpDefinition> = {
   wait: {
     command: "wait",
     summary:
-      "Wait for a Playwright page load state so post-navigation state is trustworthy without manual sleep. When used via --wait on navigation commands, wait failures surface as a wait_warning field instead of masking the navigation result.",
+      "Wait for a Playwright page load state so post-navigation state is trustworthy without manual sleep. When used via --wait on navigation commands, wait failures surface as a wait_warning field instead of masking the navigation result. For SPA navigations where networkidle is not enough, use --settle (load state + URL-stability poll).",
     usage:
       "playwright-cli-axi wait [--state load|domcontentloaded|networkidle] [--timeout <ms>]",
     args: [],
@@ -239,6 +239,25 @@ const WRAPPER_HELP: Record<string, HelpDefinition> = {
     examples: [
       "playwright-cli-axi wait --state networkidle",
       "playwright-cli-axi click e5 --wait load",
+    ],
+  },
+  find: {
+    command: "find",
+    summary:
+      "Look up labelled page data from the current snapshot by text/name, pairing adjacent label/value nodes.",
+    usage: 'playwright-cli-axi find "<label>"',
+    args: [
+      {
+        name: "label",
+        required: true,
+        description:
+          "text/accessible-name to find in the snapshot (case-insensitive)",
+      },
+    ],
+    flags: [],
+    examples: [
+      'playwright-cli-axi find "Classrooms"',
+      'playwright-cli-axi find "Start Free Trial"',
     ],
   },
 };

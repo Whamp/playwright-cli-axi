@@ -169,8 +169,13 @@ tests until they are assigned to a wrapper command family.
 - `help <command>` — Alias for `<command> --help`; show help for specific commands
 - `scroll` — Scroll the page without hand-writing JS: `--to <ref>` (scrollIntoView a snapshot ref), `--top`, `--bottom`, or `--by <px>` (only one action at a time)
 - `wait` — Wait for a Playwright load state (`load|domcontentloaded|networkidle`) so post-navigation state is trustworthy without manual `sleep`
+- `find` — Look up labelled page data from the current snapshot by text/name (e.g. `find "Classrooms"`) and return structured matches with refs, pairing adjacent label/value nodes so dashboard KPIs and stats read as values instead of grepping a flat tree
 
-Navigation commands also accept a `--wait <state>` flag (e.g. `click e5 --wait networkidle`) that runs a bounded wait after the action. If the wait fails after a successful navigation, the primary result is returned with a `wait_warning` field instead of masking the success.
+Navigation commands also accept a `--wait <state>` flag (e.g. `click e5 --wait networkidle`) that runs a bounded wait after the action. If the wait fails after a successful navigation, the primary result is returned with a `wait_warning` field instead of masking the success. For SPA navigations where `--wait networkidle` does not settle the client-side route, use `--settle` (e.g. `click e5 --settle`), which waits for the load state **and** polls `page.url()` until it stops changing, so the next read sees settled state.
+
+After a submit-triggering `click`/`dblclick`, the wrapper probes HTML5 constraint validation and surfaces `validation: { ok: false, invalid_fields: [...] }` when the browser appears to have blocked the submit (focused an invalid field). HTML5 validation bubbles are not in the accessibility tree, so without this a submit blocked by an invalid field looks identical to a successful submit. The primary click result and exit code are preserved either way.
+
+`eval` and `run-code` flatten their single return value to a top-level `result` and undo upstream's JSON encoding, so `eval "location.href"` returns the URL directly (not `result: result: "\"…\""`). Note `eval` runs in the **browser DOM context** (no `page`); `run-code` runs in the **node context** and receives `page` (use an `async (page) => { ... }` arrow expression).
 
 ## Ambient context (session hook)
 
@@ -306,6 +311,8 @@ file/size, timestamps, and recent reported files when they exist.
 - `--version` / `-v` — Print a clean TOON version (wrapper + upstream), not forwarded to upstream
 - `--full` — Bypass generic JSON result truncation (results above 1500 bytes are previewed by default with a byte count and this escape hatch)
 - `--fields a,b,c` — Select additional list columns (defaults to `id,name,status`; available browser fields include `browserType`, `version`, `compatible`, `attached`, `userDataDir`, `headed`)
+- `--wait <state>` — After a navigation command, wait for a Playwright load state (`load|domcontentloaded|networkidle`); network only, may race SPA route mounting
+- `--settle [state]` — After a navigation command, wait for the load state **and** poll the URL to stability (deterministic SPA settle; default state `networkidle`)
 - `--json` — Ignored (wrapper stdout is always TOON)
 
 ## Error handling

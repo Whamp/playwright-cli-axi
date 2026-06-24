@@ -4,14 +4,19 @@ import {
   commandName,
   hasVersionFlag,
   hasFullFlag,
+  isKnownCommand,
   isVideoCommand,
   isWrapperCommand,
   isValidWaitState,
   parseFieldsFlag,
+  parseSettleFlag,
   parseWaitFlag,
   sessionFromArgv,
+  settleLoadStateCode,
   stripJsonFlags,
   stripWrapperFlags,
+  validationProbeCode,
+  VALIDATION_PROBE_COMMANDS,
   waitForLoadStateCode,
 } from "../domain/commandSurface.js";
 import { normalizeSessions } from "../domain/sessions.js";
@@ -26,6 +31,11 @@ import {
 } from "../domain/hookSetup.js";
 import { handleVideoCommand } from "../domain/videoCommands.js";
 import {
+  findInTree,
+  parseSnapshotTree,
+  snapshotTextOf,
+} from "../domain/snapshotFind.js";
+import {
   createVideoStore,
   reconcileVideoState,
   type VideoSidecarState,
@@ -37,11 +47,11 @@ import {
 import { homeModel } from "../presenter/home.js";
 import { contextModel } from "../presenter/context.js";
 import { commandSuccessModel } from "../presenter/success.js";
-import { toToon, type ToonValue } from "../presenter/toon.js";
+import { toToon, table, type ToonValue } from "../presenter/toon.js";
 import { versionModel } from "../presenter/version.js";
 import { errorToStdout } from "../presenter/errors.js";
 import { normalizeUpstreamError } from "../upstream/errors.js";
-import { parseUpstreamOutput } from "../upstream/parse.js";
+import { isObject, parseUpstreamOutput } from "../upstream/parse.js";
 import {
   createUpstreamRunner,
   resolveUpstreamVersion,
@@ -86,12 +96,22 @@ export async function runCli(
   if (argv.includes("--help") || argv.includes("-h")) {
     if (!command || isVideoCommand(command) || isWrapperCommand(command))
       return { exitCode: 0, stdout: helpToStdout(command) };
+    // C-5: surface Unknown command consistently with the run router instead
+    // of forwarding `<unknown> --help` to upstream, which returns permissive
+    // help metadata for non-commands (e.g. `help get-url`).
+    if (!isKnownCommand(command))
+      return usageError(
+        command,
+        `Unknown command: ${command}`,
+        ["playwright-cli-axi --help"],
+      );
     return await runHelpCommand(argv, deps);
   }
   if (command === "setup") return runSetup(argv, deps);
   if (command === "context") return await runContext(deps);
   if (command === "scroll") return await runScrollCommand(argv, deps);
   if (command === "wait") return await runWaitCommand(argv, deps);
+  if (command === "find") return await runFindCommand(argv, deps);
   if (isVideoCommand(command)) {
     return await handleVideoCommand({
       argv,
@@ -251,6 +271,7 @@ async function runGenericCommand(
   const full = hasFullFlag(argv);
   const fields = parseFieldsFlag(argv);
   const wait = parseWaitFlag(argv);
+  const settle = parseSettleFlag(argv);
   const run = await deps.upstream(stripWrapperFlags(argv));
   const parsed = parseUpstreamOutput(run.stdout, run.stderr, run.exitCode);
   if (parsed.isError || run.exitCode !== 0)
@@ -260,8 +281,13 @@ async function runGenericCommand(
   // command, so the post-action state is trustworthy without manual sleep.
   // N-2: a wait failure must NOT mask the primary command's success — surface
   // it as a bounded `wait_warning` on the ok result instead.
+  // C-4: `--settle` is the deterministic variant (load state + URL-stability
+  // poll); `--wait` settles network only and may race SPA route mounting.
   let waitWarning: string | undefined;
-  if (wait) {
+  if (settle) {
+    const settleResult = await runSettle(settle, deps);
+    if (settleResult.kind === "error") waitWarning = settleResult.warning;
+  } else if (wait) {
     const waitResult = await runPageWait(wait, deps);
     if (waitResult.kind === "error") waitWarning = waitResult.warning;
   }
@@ -271,6 +297,14 @@ async function runGenericCommand(
     artifactBase: run.artifactBase,
   });
   if (waitWarning) model.wait_warning = waitWarning;
+  // C-1: after a submit-triggering click, probe HTML5 constraint validation
+  // so a submit blocked by an invalid field is not silently reported as ok
+  // (the validation bubble is not in the accessibility tree). Never masks the
+  // primary result and never fails the command.
+  if (VALIDATION_PROBE_COMMANDS.has(command)) {
+    const validation = await runValidationProbe(deps);
+    if (validation) model.validation = validation;
+  }
   return { exitCode: 0, stdout: toToon(model) };
 }
 
@@ -453,6 +487,64 @@ async function runPageWait(
   return { kind: "ok" };
 }
 
+/** Issue a deterministic SPA settle after a navigation command (C-4). Like
+ * `runPageWait`, a failure is a warning, never a hard error. */
+async function runSettle(
+  state: string,
+  deps: Required<CliDependencies>,
+): Promise<{ kind: "ok" } | { kind: "error"; warning: string }> {
+  const code = settleLoadStateCode(state, 5000);
+  const run = await deps.upstream(["run-code", code]);
+  const parsed = parseUpstreamOutput(run.stdout, run.stderr, run.exitCode);
+  if (parsed.isError || run.exitCode !== 0) {
+    const detail =
+      successTextOf(parsed) ||
+      (parsed.kind === "text" ? parsed.text : run.stderr) ||
+      "upstream error";
+    return {
+      kind: "error",
+      warning: `post-action settle for '${state}' failed: ${detail}`,
+    };
+  }
+  return { kind: "ok" };
+}
+
+/**
+ * C-1: probe HTML5 form constraint validation after a submit-triggering click.
+ * Returns `{ ok: false, invalid_fields }` when a submit appears blocked (the
+ * browser focused an invalid field), so a blocked submit is surfaced instead
+ * of silently reported as ok. Returns undefined (adds nothing) otherwise, so
+ * navigating/non-submit clicks are unaffected.
+ */
+async function runValidationProbe(
+  deps: Required<CliDependencies>,
+): Promise<{ ok: false; invalid_fields: ToonValue[] } | undefined> {
+  try {
+    const run = await deps.upstream(["run-code", validationProbeCode()]);
+    const parsed = parseUpstreamOutput(run.stdout, run.stderr, run.exitCode);
+    if (parsed.isError || run.exitCode !== 0) return undefined;
+    const raw = parsed.kind === "json" ? parsed.value : undefined;
+    if (!isObject(raw)) return undefined;
+    // run-code wraps its return value in { result: "<json>" }; unwrap and parse.
+    let probe: Record<string, unknown> = raw;
+    if ("result" in probe && typeof probe.result === "string") {
+      try {
+        const parsedResult = JSON.parse(probe.result);
+        if (isObject(parsedResult)) probe = parsedResult;
+        else return undefined;
+      } catch {
+        return undefined;
+      }
+    }
+    const active = Boolean(probe.activeIsInvalid);
+    const fields = probe.fields;
+    if (!active || !Array.isArray(fields) || fields.length === 0) return undefined;
+    return { ok: false, invalid_fields: fields as ToonValue[] };
+  } catch {
+    return undefined;
+  }
+}
+
 function successTextOf(parsed: ReturnType<typeof parseUpstreamOutput>): string {
   if (parsed.kind === "text") return parsed.text;
   if (
@@ -464,6 +556,63 @@ function successTextOf(parsed: ReturnType<typeof parseUpstreamOutput>): string {
     return typeof v === "string" ? v : "";
   }
   return "";
+}
+
+/**
+ * C-3: structured lookup over the current snapshot. Runs upstream `snapshot`,
+ * parses the a11y tree, and returns labelled matches with refs and paired
+ * sibling values — so an agent reads page data (KPIs, labels) as structured
+ * values instead of grepping a flat tree.
+ */
+async function runFindCommand(
+  argv: string[],
+  deps: Required<CliDependencies>,
+): Promise<CliResult> {
+  const rest = argv.slice(argv.indexOf("find") + 1);
+  const query = rest.find((arg) => !arg.startsWith("-"));
+  if (!query) {
+    return usageError("find", "find needs a label to look up", [
+      'playwright-cli-axi find "Classrooms"',
+      "playwright-cli-axi find Start",
+    ]);
+  }
+  const run = await deps.upstream(stripWrapperFlags(["snapshot"]));
+  const parsed = parseUpstreamOutput(run.stdout, run.stderr, run.exitCode);
+  if (parsed.isError || run.exitCode !== 0)
+    return normalizeUpstreamError(["snapshot"], run, parsed);
+  const treeText =
+    parsed.kind === "json"
+      ? snapshotTextOf(parsed.value)
+      : parsed.kind === "text"
+        ? parsed.text
+        : "";
+  const matches = findInTree(parseSnapshotTree(treeText), query);
+  const base: Record<string, ToonValue> = {
+    command: "find",
+    status: "ok",
+    query,
+    matches: matches.length,
+    ...(matches.length === 0
+      ? { empty: "no snapshot nodes matched the query" }
+      : {}),
+  };
+  if (matches.length === 0) return { exitCode: 0, stdout: toToon(base) };
+  return {
+    exitCode: 0,
+    stdout: toToon({
+      ...base,
+      match_rows: table(
+        ["ref", "role", "name", "value", "text"],
+        matches.map((m) => ({
+          ref: m.ref ?? "",
+          role: m.role,
+          name: m.name ?? "",
+          value: m.value ?? "",
+          text: m.text ?? "",
+        })),
+      ),
+    }),
+  };
 }
 
 function usageError(

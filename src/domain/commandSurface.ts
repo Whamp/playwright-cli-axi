@@ -1,3 +1,8 @@
+import {
+  isCloseLikeCommand,
+  isKnownUpstreamCommand,
+} from "./upstreamCommands.js";
+
 export const VIDEO_COMMANDS = [
   "video-start",
   "video-stop",
@@ -16,6 +21,7 @@ const GLOBAL_FLAGS_WITH_VALUE = new Set([
   "-s",
   "--fields",
   "--wait",
+  "--settle",
 ]);
 const GLOBAL_BOOLEAN_FLAGS = new Set([
   "--json",
@@ -160,8 +166,15 @@ export function stripWrapperFlags(argv: string[]): string[] {
       index += 1; // also drop the value token
       continue;
     }
-    if (arg.startsWith("--fields=")) continue;
-    if (arg.startsWith("--wait=")) continue;
+    if (arg === "--settle") {
+      // --settle takes an OPTIONAL value: drop a following recognized state, but
+      // leave the next token if it is the command's own positional/flag.
+      const next = argv[index + 1];
+      if (next !== undefined && isValidWaitState(next)) index += 1;
+      continue;
+    }
+    if (arg.startsWith("--fields=") || arg.startsWith("--wait=")) continue;
+    if (arg.startsWith("--settle=")) continue;
     result.push(arg);
   }
   return result;
@@ -194,6 +207,28 @@ export function isValidWaitState(state: string): boolean {
   return ["load", "domcontentloaded", "networkidle"].includes(state);
 }
 
+/** Read a `--settle [state]` request (C-4). Returns the load state to settle on
+ * (default `networkidle`) when present, else undefined. */
+export function parseSettleFlag(argv: string[]): string | undefined {
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index]!;
+    let raw: string | undefined;
+    if (arg.startsWith("--settle=")) raw = arg.slice("--settle=".length);
+    else if (arg === "--settle") {
+      const next = argv[index + 1];
+      // `--settle` takes an optional value; only consume the next token when it
+      // is a recognized load state (so `click e5 --settle` works stateless).
+      if (next !== undefined && isValidWaitState(next)) raw = next;
+      else raw = "networkidle";
+    }
+    if (raw !== undefined) {
+      const state = raw.trim();
+      return isValidWaitState(state) ? state : "networkidle";
+    }
+  }
+  return undefined;
+}
+
 /**
  * N-1: build the Playwright `run-code` snippet that waits for a load state.
  *
@@ -208,6 +243,49 @@ export function waitForLoadStateCode(
   timeoutMs: number,
 ): string {
   return `async (page) => { await page.waitForLoadState('${state}', { timeout: ${timeoutMs} }).catch(() => {}); }`;
+}
+
+/**
+ * C-4: build the `run-code` snippet for a deterministic SPA settle. `--wait
+ * networkidle` settles the network layer only; client-side route mounting can
+ * lag, so a follow-up read can race the transition and come back empty. `--settle`
+ * waits for the load state AND then polls `page.url()` until it stops changing
+ * (SPA route quiesced), so the next read sees settled state. Uses
+ * `page.waitForTimeout` because upstream's run-code sandbox does not expose the
+ * node `setTimeout` global.
+ *
+ * Like `waitForLoadStateCode`, this is an async arrow expression receiving
+ * `page` (upstream wraps it in a non-async body). Exported for a contract test.
+ */
+export function settleLoadStateCode(
+  state: string,
+  timeoutMs: number,
+): string {
+  return `async (page) => { await page.waitForLoadState('${state}', { timeout: ${timeoutMs} }).catch(() => {}); let prev = page.url(); for (let i = 0; i < 12; i += 1) { await page.waitForTimeout(100); const cur = page.url(); if (cur === prev) { break; } prev = cur; } }`;
+}
+
+/** Commands that trigger a form submit, after which the wrapper probes HTML5
+ * constraint validation so a blocked submit is not silently reported as ok. */
+export const VALIDATION_PROBE_COMMANDS = new Set(["click", "dblclick"]);
+
+/**
+ * C-1: build the `run-code` snippet that probes HTML5 form constraint validation.
+ *
+ * HTML5 validation bubbles are not in the accessibility tree, so a submit
+ * blocked by an invalid field looks identical to a successful submit in the
+ * snapshot (and the click returns `ok`). After a submit-triggering click, the
+ * browser focuses the first invalid field, so `activeIsInvalid` reliably
+ * distinguishes a blocked submit from a navigating/non-submit click. The probe
+ * returns the offending fields with identifying metadata so the wrapper can
+ * surface `validation: { ok: false, invalid_fields: [...] }`.
+ *
+ * The `pca-validation-probe` comment marker inside the emitted snippet lets tests
+ * identify this internal call without consuming the command-under-test response
+ * queue. Like the other run-code snippets, this is an async arrow expression
+ * receiving `page`.
+ */
+export function validationProbeCode(): string {
+  return `async (page) => { /* pca-validation-probe */ const info = await page.evaluate(() => { const sel = "input:invalid, select:invalid, textarea:invalid"; const invalid = Array.from(document.querySelectorAll(sel)); const active = document.activeElement; return { activeIsInvalid: !!(active && typeof active.matches === "function" && active.matches(":invalid")), fields: invalid.map((el) => ({ tag: el.tagName.toLowerCase(), type: el.getAttribute("type") || null, name: el.getAttribute("name") || null, id: el.id || null, placeholder: el.getAttribute("placeholder") || null, label: el.labels && el.labels[0] ? el.labels[0].innerText.trim() : null, message: el.validationMessage || null })) }; }); return info; }`;
 }
 
 /**
@@ -259,8 +337,28 @@ export function isVideoCommand(
   return VIDEO_COMMANDS.includes(command as VideoCommandName);
 }
 
+/** Whether a command name is any command the wrapper recognizes: a wrapper
+ * command (setup/context/scroll/wait), a video command, a close-like command,
+ * or a known upstream command. Used by the help router so `help <x>` and the
+ * run router agree on whether `x` exists (C-5). */
+export function isKnownCommand(command: string | undefined): boolean {
+  if (!command) return false;
+  return (
+    isWrapperCommand(command) ||
+    isVideoCommand(command) ||
+    isCloseLikeCommand(command) ||
+    isKnownUpstreamCommand(command)
+  );
+}
+
 /** Wrapper-only commands that never forward to upstream. */
-export const WRAPPER_COMMANDS = ["setup", "context", "scroll", "wait"] as const;
+export const WRAPPER_COMMANDS = [
+  "setup",
+  "context",
+  "scroll",
+  "wait",
+  "find",
+] as const;
 
 export type WrapperCommandName = (typeof WRAPPER_COMMANDS)[number];
 
@@ -290,6 +388,7 @@ function isInlineValueFlag(arg: string): boolean {
     arg.startsWith("-s=") ||
     arg.startsWith("--session=") ||
     arg.startsWith("--fields=") ||
-    arg.startsWith("--wait=")
+    arg.startsWith("--wait=") ||
+    arg.startsWith("--settle=")
   );
 }

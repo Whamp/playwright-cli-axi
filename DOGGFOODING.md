@@ -366,3 +366,208 @@ The 4 ship-blocker/high findings from Friction Hunt #2 are closed and re-verifie
 - **N-9** ✓ Relative `video-start` filenames now land in the shell cwd. Root cause was the F-3 artifact-dir change moving the daemon spawn cwd to a cache dir without absolutizing the video-start positional (only `--filename`/`--path` were). `resolveRelativeFilePaths` now absolutizes the video-start positional against the shell cwd. Live: `video-start ./rel.webm` (after `open`) followed by `video-stop` produces a non-empty WebM findable from the shell cwd, with NO cache-dir orphan.
 
 Remaining open friction-hunt #2 findings (noted but not in this fix's scope): N-3 (mislabeled `command:` field — moot once N-1 fixed the underlying error), N-4 (SPA `open` settle), N-5 (`eval` double-nesting), N-6 (ref text-mining), N-7 (no auto-snapshot after navigation).
+
+---
+
+## Dogfood #2 — Option C: Signup / lead-capture flow test (2026-06-24, branch `feature/dogfooding-fixes`)
+
+**Task:** Drive the `classroom-connect.app` trial-signup + onboarding flow end-to-end
+as a real agent would — open → fill the registration form → submit → assert the
+success state — exercising the form-interaction surface (`fill`, validation,
+assertion, structured extraction) that Option A never touched. **Real purpose:**
+dogfood the wrapper and log friction. Findings are the **C-** series.
+
+**Head:** `32bfc5e` (post-friction-hunt-#2 fixes, validated). **Site:** real
+production `classroom-connect.app`. No env vars set (browser auto-discovered).
+
+### Conversion path proven (end-to-end)
+1. `open` → landing; `snapshot` found CTAs (`Start Free Trial` `e16` → `/register`).
+2. `click e16 --wait networkidle` → `/register` form (Name/Email/Password).
+3. `fill` all three fields → `ok`.
+4. (validation probe) bad email submit → **blocked silently** (see C-1).
+5. re-`fill` valid email/password → `click Create Account` → redirect to `/onboarding`.
+6. `fill` school name → `click Create School` → redirect to `/school-year/dashboard`.
+7. **Asserted success:** dashboard shows logged-in user `Will Test`, the created
+   school, and fresh-school KPIs (`0/0 Classrooms`, `2 blockers`, `Next Step: Create classrooms`).
+8. `School Settings` confirmed persisted school name `PCA Test Preschool`, invite
+   code `K5ZGWA`, `Trial Active — 89 days remaining`.
+
+**Verdict:** the wrapper **completed** a real, non-trivial authenticated flow
+(signup → school creation → dashboard) and the form commands (`fill`) worked
+cleanly. But the hunt surfaced **6 findings**, including one **critical** silent
+failure on the single most common form-testing action (submit-with-invalid-input).
+
+### 🔴 C-1 — HTML5 form validation is invisible to the snapshot (double false-positive)
+- **what-tried:** `fill` an invalid email (`not-an-email`) + short password, then `click Create Account`.
+- **what-happened:** `click` returned `status: ok`. The post-submit `snapshot`
+  showed the form **unchanged with no error** — the only signal was `[active]`
+  focus moved to the email field. Confirmed via `eval document.querySelector('input[type=email]').checkValidity()` → `false`: the browser's HTML5 `type=email`
+  constraint validation blocked the submit and focused the field, but the
+  validation bubble is **not in the accessibility tree**.
+- **why-it-hurts:** the most dangerous failure mode for form testing — the
+  wrapper reports `ok` for the click AND the snapshot shows no error, so an agent
+  concludes the form submitted successfully when in reality nothing was sent.
+  There is no wrapper-level signal that submit was blocked by validation.
+- **AXI-principle-violated:** **5 (definitive states)** — a silent non-success
+  masquerading as success; the opposite of a definitive empty/success state.
+- **suggested-fix:** on submit commands, detect a no-navigation outcome (URL
+  unchanged after click) and/or surface `eval`-style `checkValidity()` /
+  `:invalid` element state in the result, e.g. a `validation: { ok: false,
+  invalid_fields: [...] }` block when a click doesn't navigate. At minimum,
+  document that HTML5 validation bubbles are snapshot-invisible and the agent
+  must assert via URL-change or `:invalid` selectors.
+
+### 🟠 C-2 — `eval` is triple-nested AND context-confused (extends N-5)
+- **what-tried:** `eval "location.href"`; earlier `eval "async (page) => page.url()"`.
+- **what-happened:** `eval "location.href"` → `result: result: "\"https://classroom-connect.app/onboarding\""`
+  — the value is **triple-escaped** (a stringified JSON string, two `result:`
+  wrappers, plus inner quotes). And `eval "async (page) => page.url()"` **fails**
+  with `TypeError: Cannot read properties of undefined (reading 'url')`.
+- **why-it-hurts:** (a) recovering the actual URL requires un-escaping three
+  layers; (b) the wrapper exposes **two different eval surfaces** — `eval`
+  (browser-DOM context, **no `page`**) vs `run-code` (node context, **has `page`**) —
+  with different function signatures. The `async (page) => {...}` form that is
+  CORRECT for `wait`/`run-code` is WRONG for `eval`. An agent must know which
+  surface they're on, and the wrapper doesn't tell them.
+- **AXI-principle-violated:** **1 (content-first)** — the value is buried, not
+  top-level; **10 (clean contract)** — two eval commands with silently different
+  calling conventions.
+- **suggested-fix:** flatten `eval`'s single return value to a top-level `result`
+  (or a typed `value`) instead of `result.result`; and document/align the eval
+  vs run-code calling conventions (ideally make `eval` accept the same
+  `async (page)=>{}` form, or clearly label contexts in their `--help`).
+
+### 🟠 C-3 — Structured page data (KPIs, pricing, stats) requires text-mining the a11y tree (extends N-6)
+- **what-tried:** read the dashboard's KPIs ("how many classrooms? how many
+  blockers?") and compare the pricing plans ($30/$50/$100 + features).
+- **what-happened:** the dashboard's pre-computed aggregates are in the DOM as
+  sibling text nodes: `generic "0/0"` (`e253`) next to `generic "Classrooms"`
+  (`e254`), `generic "2 blockers"` (`e247`), etc. The pricing cards similarly
+  scatter name/price/features across list items. The wrapper returns a flat a11y
+  tree; recovering the numbers/tables the page **already computed** requires
+  fragile sibling-node parsing (`grep`/`eval querySelectorAll`).
+- **why-it-hurts:** the page has done the aggregation work; the wrapper hands
+  back a flat tree and makes the agent redo it with string parsing. Extracting
+  "the 3 plans and their prices" is a multi-step mine, not a query.
+- **AXI-principle-violated:** **4 (pre-computed aggregates)** — the page
+  pre-computed them, but the wrapper doesn't surface a table/derived structure.
+- **suggested-fix:** a command-aware extractor (e.g. `extract` / a `--table` mode
+  on `snapshot`) that returns labeled rows for repeated card/stat patterns, or a
+  `find "Classrooms"` → `{value:"0/0"}` lookup that pairs sibling label/value nodes.
+
+### 🟡 C-4 — `--wait` returning ok doesn't guarantee the next read sees settled state (extends N-4)
+- **what-tried:** `click Create School e150 --wait networkidle`, then immediately `eval location.href`.
+- **what-happened:** the `click --wait` returned `ok`, but the next `eval
+  location.href` came back **empty** (mid-transition). A second `wait networkidle`
+  was required before the URL read as `/school-year/dashboard`.
+- **why-it-hurts:** `--wait networkidle`'s `ok` is not a reliable "the page is
+  settled for the next command" signal for SPA client-side routing; follow-up
+  reads can race the transition. Agents must add defensive re-waits.
+- **AXI-principle-violated:** **5 (definitive states)** — `ok` overpromises settle.
+- **suggested-fix:** make `--wait` (or a new `--settle`) gate on a stable
+  post-action URL/DOM, or document that `--wait networkidle` settles network only
+  and SPA route mounting may lag.
+
+### 🟡 C-5 — `help <cmd>` and the real command surface disagree about existence
+- **what-tried:** `help get-url` (guessing a URL-read command).
+- **what-happened:** `help get-url` returned help metadata (`source: @playwright/cli`,
+  `bytes: 6423`, `lines: 40`) — looking like a real command. But `get-url` itself
+  returns `error: kind: usage / Unknown command: get-url`. The `help <X>` alias
+  (→ `<X> --help`) and the actual command router disagree on whether `X` exists.
+- **why-it-hurts:** an agent using `help <X>` to validate a command's existence
+  is misled — it can report a command as real that the router rejects.
+- **AXI-principle-violated:** **9/10 (discoverability / clean contract)**.
+- **suggested-fix:** make `help <X>` route through the same command-existence
+  check as the router, returning `Unknown command` consistently when `X` isn't real.
+
+### 🟢 C-6 — `select` / `check` / `upload` form commands remain un-dogfooded
+- **what-tried:** looked for dropdowns/checkboxes on the registration + School
+  Settings forms to exercise `select`/`check`/`upload` live.
+- **what-happened:** both real forms used **only textboxes + buttons** (the
+  timezone field is a textbox, not a `<select>`). No opportunity to drive the
+  dropdown/checkbox/upload paths against the real site.
+- **why-it-hurts:** these form commands are still only unit-tested (the exact gap
+  that hid the N-1 `wait` breakage). They may harbour context/signature bugs that
+  only surface against a real `<select>`/`<input type=file>`.
+- **suggested-fix:** (dogfood-coverage gap, not a bug) find a real flow with a
+  `<select>`/checkbox/upload (e.g. a settings page with role/timezone dropdowns,
+  or a file-upload form) and drive it; or add a live-upstream contract test for
+  each form command's emitted selector/code string.
+
+### ✅ What worked well (reinforce these)
+- **GOOD-C1** `fill` is clean and reliable — all fields filled, persisted across
+  navigation (school name read back verbatim on the settings page).
+- **GOOD-C2** Navigation CTA → form → submit → redirect worked at every step;
+  `click --wait networkidle` drove the SPA transitions (N-1 fix holding).
+- **GOOD-C3** Readable single-layer a11y snapshot (P-2 fix holding) — refs and
+  field labels were legible, not double-escaped JSON.
+- **GOOD-C4** Browser auto-discovered with **no env var** (F-2 fix holding); no
+  CWD pollution (F-3 fix holding); snapshot paths absolutized and findable.
+- **GOOD-C5** The full authenticated conversion path (signup → school → dashboard)
+  completed and was assertable end-to-end — a genuinely useful real task.
+
+### Note on teardown
+The trial account + school (`PCA Test Preschool`, invite code `K5ZGWA`) were
+really created on production `classroom-connect.app`. They were **not** torn down
+(no delete-account flow was driven); the user can delete the trial from the
+dashboard/account settings. The billing "Manage Billing" button (→ Stripe) was
+intentionally not clicked.
+
+---
+
+## Dogfood #2 — Option C Resolution (2026-06-24, branch `feature/dogfooding-fixes`)
+
+All 6 Option-C findings (C-1..C-6) are fixed, re-verified against a live
+`classroom-connect.app`, and covered by new unit/property tests.
+
+- **C-1** ✓ HTML5 validation is now surfaced. After a submit-triggering
+  `click`/`dblclick`, the wrapper runs a bounded `run-code` probe (a shared
+  `validationProbeCode` seam, contract-tested) that reports `:invalid` form
+  fields and whether the browser focused an invalid field (the blocked-submit
+  signal). When a submit appears blocked, the result gains
+  `validation: { ok: false, invalid_fields: [...] }` — the primary click result
+  and exit code are preserved. A bug found during live re-dogfood (run-code wraps
+  its return in `{ result: "<json>" }`, which the probe initially did not
+  unwrap) was fixed. Live: invalid-email submit on `/register` →
+  `validation: ok: false` with the email field (id `email`, label `EMAIL`);
+  valid submit → navigates to `/onboarding` with no validation block.
+- **C-2** ✓ `eval`/`run-code` flatten their single return value to a top-level
+  `result` and undo upstream's JSON encoding (`recoverScalarValue`). Live:
+  `eval "location.href"` returns the URL directly, not `result: result: "\"…\""`.
+  README documents the two contexts: `eval` runs in the browser DOM (no `page`),
+  `run-code` in node (has `page`, use `async (page) => {}`). The working N-1
+  run-code async-arrow contract is unchanged.
+- **C-3** ✓ New `find <label>` wrapper command parses the a11y snapshot
+  (`snapshotFind.ts`, pure + unit-tested) and returns structured matches with
+  refs, pairing adjacent label/value nodes. Live on the Director dashboard:
+  `find "Classrooms"` → `e154, generic, value: 0/0`; `find "Students"` → 4
+  matches. Default `snapshot` output is unchanged (new capability only).
+- **C-4** ✓ New `--settle [state]` flag (default `networkidle`) waits for the
+  load state AND polls `page.url()` to stability (uses `page.waitForTimeout`,
+  not the absent node `setTimeout`). Live: the read after `click Create School
+  --settle` returned the dashboard URL without a second manual wait (the empty
+  mid-transition read that originally found C-4 is gone). `--wait` is documented
+  as network-only.
+- **C-5** ✓ `help <X>`/`<X> --help` now route through the same `isKnownCommand`
+  check as the run router, returning `Unknown command: X` (exit 2) for
+  non-commands instead of upstream's permissive help metadata. Live:
+  `help get-url` → `Unknown command: get-url` (exit 2); `help click` still
+  returns upstream help.
+- **C-6** ✓ The `select`/`check`/`upload` coverage gap (the class of gap that
+  hid N-1) is closed two ways: passthrough-integrity unit tests prove the
+  wrapper forwards each command's argv with wrapper flags stripped, AND a live
+  dogfood against a real form (injected into a blank page) proved all three:
+  `select e5 green` → `color=green`; `check e8` → `agree=true`;
+  `click <upload-button>` then `upload /abs/file.png` → `files=avatar.png`
+  (upload requires the file-chooser modal state from clicking the input first).
+
+Verification (final head): typecheck clean; 240 tests (+36 new: C-1 probe + CLI
+blocked/navigating/probe-failure, C-2 eval flatten, C-3 snapshotFind parser +
+find CLI, C-4 settle contract + CLI, C-5 help consistency, C-6 passthrough x3);
+property tests stable across 2 runs; build; generated skill/check; 0 production
+vulnerabilities; Chromium smoke video; live re-dogfood proving C-1..C-5 on
+classroom-connect.app and C-6 on a real form.
+
+No regressions: prior N-1/N-2/N-8/N-9 and P-1/P-2 fixes and whole-surface/
+AXI-alignment behavior remain green and were re-confirmed during the live
+re-dogfood (wait/--wait succeed, video-start guards, snapshot readable).

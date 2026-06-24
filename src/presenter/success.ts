@@ -45,6 +45,8 @@ export function commandSuccessModel(
       return snapshotModel(command, parsed.value, options);
     if (NAVIGATION_COMMANDS.has(command))
       return navigationModel(command, parsed.value, options);
+    if (FLAT_RESULT_COMMANDS.has(command))
+      return flatResultModel(command, parsed.value);
     return familyResultModel(command, parsed.value, options);
   }
 
@@ -162,6 +164,42 @@ function closeAllModel(
       ? { closed_rows: table(["id", "status"], closed.rows) }
       : {}),
   };
+}
+
+/** Commands whose upstream payload wraps a single scalar in `{ result: <value> }`.
+ * `eval` runs in the browser DOM context and `run-code` in the node context; both
+ * JSON-encode their return value into `result`. We lift that value to the top
+ * level and undo the JSON encoding so the agent reads it directly instead of
+ * digging through `result: result: "\"…\""` (C-2). */
+const FLAT_RESULT_COMMANDS = new Set(["eval", "run-code"]);
+
+/** C-2: lift the single return value out of `{ result: <value> }` to the top
+ * level and recover the real JS value (upstream JSON-encodes eval/run-code
+ * returns into a string). Strings are JSON.parsed with a raw-string fallback
+ * so non-JSON strings survive unchanged. */
+function flatResultModel(
+  command: string,
+  value: unknown,
+): Record<string, ToonValue> {
+  const base = baseModel(command);
+  if (isObject(value) && "result" in value) {
+    return { ...base, result: recoverScalarValue((value as { result: unknown }).result) };
+  }
+  return { ...base, result: toResultValue(value) };
+}
+
+/** Undo upstream's JSON encoding of an eval/run-code return value. A JSON
+ * string is parsed back to its real value (number/boolean/string/object); a
+ * non-JSON string is returned as-is; non-strings pass through simply. */
+function recoverScalarValue(inner: unknown): ToonValue {
+  if (typeof inner === "string") {
+    try {
+      return JSON.parse(inner) as ToonValue;
+    } catch {
+      return inner;
+    }
+  }
+  return simpleValue(inner);
 }
 
 function familyResultModel(

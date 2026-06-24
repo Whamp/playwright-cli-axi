@@ -12,6 +12,9 @@ import {
   stripJsonFlags,
   stripWrapperFlags,
   waitForLoadStateCode,
+  settleLoadStateCode,
+  parseSettleFlag,
+  validationProbeCode,
 } from "./commandSurface.js";
 
 describe("commandSurface", () => {
@@ -241,5 +244,72 @@ describe("waitForLoadStateCode (N-1)", () => {
       // The regression was `await page.waitForLoadState(...)` with no wrapper.
       expect(/^await\s/.test(code)).toBe(false);
     }
+  });
+});
+
+describe("settleLoadStateCode (C-4)", () => {
+  it("emits an async arrow expression receiving page", () => {
+    const code = settleLoadStateCode("networkidle", 5000);
+    expect(code.startsWith("async (page) =>")).toBe(true);
+    // Syntactically valid function expression (the gap that broke N-1).
+    new Function(code);
+  });
+
+  it("waits for the load state AND polls the URL to stability", () => {
+    const code = settleLoadStateCode("networkidle", 5000);
+    expect(code).toContain("waitForLoadState('networkidle'");
+    expect(code).toContain("page.url()");
+    expect(code).toMatch(/for\s*\(let\s*i/);
+    // uses Playwright's waitForTimeout, not the node setTimeout global which
+    // upstream's run-code sandbox does not expose.
+    expect(code).toContain("page.waitForTimeout");
+    expect(code).not.toContain("setTimeout");
+  });
+});
+
+describe("parseSettleFlag (C-4)", () => {
+  it("reads --settle with an optional state, defaulting to networkidle", () => {
+    expect(parseSettleFlag(["click", "e5", "--settle"])).toBe("networkidle");
+    expect(parseSettleFlag(["click", "e5", "--settle", "load"])).toBe("load");
+    expect(parseSettleFlag(["goto", "--settle=domcontentloaded"])).toBe(
+      "domcontentloaded",
+    );
+    // a positional after --settle is not consumed as a state when unrecognized
+    expect(parseSettleFlag(["click", "--settle", "e5"])).toBe("networkidle");
+  });
+
+  it("returns undefined when --settle is absent", () => {
+    expect(parseSettleFlag(["click", "e5", "--wait", "load"])).toBeUndefined();
+  });
+
+  it("stripWrapperFlags drops --settle and its optional value", () => {
+    expect(stripWrapperFlags(["click", "e5", "--settle"])).toEqual([
+      "click",
+      "e5",
+    ]);
+    expect(stripWrapperFlags(["click", "--settle", "load", "e5"])).toEqual([
+      "click",
+      "e5",
+    ]);
+    expect(stripWrapperFlags(["click", "--settle=load", "e5"])).toEqual([
+      "click",
+      "e5",
+    ]);
+  });
+});
+
+describe("validationProbeCode (C-1)", () => {
+  it("emits an async arrow expression with the test marker", () => {
+    const code = validationProbeCode();
+    expect(code.startsWith("async (page) =>")).toBe(true);
+    expect(code).toContain("pca-validation-probe");
+    new Function(code);
+  });
+
+  it("queries :invalid form fields and reports the activeElement state", () => {
+    const code = validationProbeCode();
+    expect(code).toContain(":invalid");
+    expect(code).toContain("activeIsInvalid");
+    expect(code).toContain("validationMessage");
   });
 });

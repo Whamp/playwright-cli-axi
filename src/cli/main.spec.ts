@@ -938,6 +938,148 @@ describe("runCli", () => {
     expect(result.stdout).toContain("requestedFile: ./rec.webm");
     expect(result.stdout).toContain("chapter_rows");
   });
+
+  it("C-5: help <unknown> returns Unknown command consistent with the router (exit 2)", async () => {
+    const harness = await createHarness([]);
+    const result = await harness.run(["help", "get-url"]);
+    expect(result.exitCode).toBe(2);
+    expect(result.stdout).toContain("kind: usage");
+    expect(result.stdout).toContain("Unknown command: get-url");
+    // no upstream call was made (consistent existence check, no permissive help)
+    expect(harness.upstreamRuns).toEqual([]);
+  });
+
+  it("C-5: <unknown> --help also returns Unknown command", async () => {
+    const harness = await createHarness([]);
+    const result = await harness.run(["bogus-command", "--help"]);
+    expect(result.exitCode).toBe(2);
+    expect(result.stdout).toContain("Unknown command: bogus-command");
+  });
+
+  it("C-5: help <known-upstream> still forwards to upstream help", async () => {
+    const harness = await createHarness([
+      { stdout: "Usage: playwright-cli click [options]\n  click an element" },
+    ]);
+    const result = await harness.run(["help", "click"]);
+    expect(result.exitCode).toBe(0);
+    expect(harness.upstreamRuns[0]).toContain("click");
+    expect(result.stdout).toContain("source: @playwright/cli");
+  });
+
+  it("C-4: --settle issues a deterministic settle run-code after a click", async () => {
+    const harness = await createHarness([
+      { stdout: "clicked" },
+      { stdout: "" },
+    ]);
+    const result = await harness.run(["click", "e5", "--settle"]);
+    expect(result.exitCode).toBe(0);
+    expect(harness.upstreamRuns[0]).toEqual(["click", "e5"]);
+    expect(harness.upstreamRuns[1]?.[0]).toBe("run-code");
+    const settleCode = harness.upstreamRuns[1]?.[1] ?? "";
+    // the emitted settle snippet is the async-arrow URL-stability form
+    expect(settleCode.startsWith("async (page) =>")).toBe(true);
+    expect(settleCode).toContain("page.url()");
+    expect(result.stdout).not.toContain("wait_warning");
+  });
+
+  it("C-1: a click that blocks on an invalid field surfaces validation (exit stays 0)", async () => {
+    const harness = await createHarness(
+      [{ stdout: "clicked" }],
+      {
+        validation: {
+          activeIsInvalid: true,
+          fields: [
+            {
+              tag: "input",
+              type: "email",
+              name: "email",
+              id: "",
+              placeholder: "you@school.com",
+              label: "Email",
+              message: "Please include an '@' in the email address.",
+            },
+          ],
+        },
+      },
+    );
+    const result = await harness.run(["click", "e131"]);
+    // the primary click result is intact and the command still exits 0
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("command: click");
+    expect(result.stdout).toContain("validation:");
+    expect(result.stdout).toContain("ok: false");
+    expect(result.stdout).toContain("Email");
+    expect(result.stdout).toContain("'@' in the email address");
+  });
+
+  it("C-1: a navigating/valid click adds no validation block", async () => {
+    const harness = await createHarness([{ stdout: "clicked" }]);
+    const result = await harness.run(["click", "e5"]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).not.toContain("validation:");
+  });
+
+  it("C-1: a validation probe failure never breaks the click", async () => {
+    // no validation option -> harness returns activeIsInvalid:false; the probe
+    // is swallowed and the click succeeds with no validation block.
+    const harness = await createHarness([{ stdout: "clicked" }]);
+    const result = await harness.run(["click", "e5"]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("command: click");
+  });
+
+  it("C-3: find returns structured matches with refs from the snapshot", async () => {
+    const harness = await createHarness([
+      {
+        stdout:
+          '{"result":{"snapshot":"- generic [ref=e253]: 0/0\\n- generic [ref=e254]: Classrooms"}}',
+      },
+    ]);
+    const result = await harness.run(["find", "Classrooms"]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("command: find");
+    expect(result.stdout).toContain("matches: 1");
+    expect(result.stdout).toContain("e254");
+    expect(result.stdout).toContain("0/0");
+  });
+
+  it("C-3: find with no query is a usage error", async () => {
+    const harness = await createHarness([]);
+    const result = await harness.run(["find"]);
+    expect(result.exitCode).toBe(2);
+    expect(result.stdout).toContain("find needs a label");
+  });
+
+  it("C-3: find reports a definitive empty state when nothing matches", async () => {
+    const harness = await createHarness([
+      { stdout: '{"result":{"snapshot":"- heading \\"Basic\\" [ref=e1]"}}' },
+    ]);
+    const result = await harness.run(["find", "Nonexistent"]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("matches: 0");
+    expect(result.stdout).toContain("empty:");
+  });
+
+  it("C-6: select forwards target+value with wrapper flags stripped", async () => {
+    const harness = await createHarness([{ stdout: "{}" }]);
+    const result = await harness.run(["select", "e5", "green", "--full"]);
+    expect(result.exitCode).toBe(0);
+    expect(harness.upstreamRuns[0]).toEqual(["select", "e5", "green"]);
+  });
+
+  it("C-6: check forwards the target with wrapper flags stripped", async () => {
+    const harness = await createHarness([{ stdout: "{}" }]);
+    const result = await harness.run(["check", "e8", "--fields", "x"]);
+    expect(result.exitCode).toBe(0);
+    expect(harness.upstreamRuns[0]).toEqual(["check", "e8"]);
+  });
+
+  it("C-6: upload forwards the file path (no ref) with wrapper flags stripped", async () => {
+    const harness = await createHarness([{ stdout: "{}" }]);
+    const result = await harness.run(["upload", "/abs/file.png", "--full"]);
+    expect(result.exitCode).toBe(0);
+    expect(harness.upstreamRuns[0]).toEqual(["upload", "/abs/file.png"]);
+  });
 });
 
 interface FakeRun {
@@ -948,12 +1090,16 @@ interface FakeRun {
 
 async function createHarness(
   fakeRuns: FakeRun[],
-  options: { pageOpen?: "open" | "closed" } = {},
+  options: {
+    pageOpen?: "open" | "closed";
+    validation?: { activeIsInvalid: boolean; fields?: unknown[] };
+  } = {},
 ) {
   const stateRoot = await mkdtemp(join(tmpdir(), "playwright-cli-axi-test-"));
   const cwd = join(stateRoot, "workspace");
   const upstreamRuns: string[][] = [];
   const pageOpen = options.pageOpen ?? "open";
+  const validation = options.validation;
   const deps: CliDependencies = {
     cwd,
     executablePath: "/home/will/.local/bin/playwright-cli-axi",
@@ -975,6 +1121,29 @@ async function createHarness(
             pageOpen === "open"
               ? '{"browsers":[{"id":"1","name":"browser"}]}'
               : '{"browsers":[]}',
+          stderr: "",
+          usedJson: true,
+        };
+      }
+      // C-1: the validation probe runs after a submit-triggering click. Answer
+      // it without consuming the command-under-test queue (it is an internal
+      // probe, not the command under test); the closed-page guard path is
+      // covered directly in main.spec.ts via the `validation` option.
+      if (
+        argv[0] === "run-code" &&
+        typeof argv[1] === "string" &&
+        argv[1].includes("pca-validation-probe")
+      ) {
+        // run-code wraps its return value in { result: "<json>" }, matching the
+        // real upstream contract the probe unwraps.
+        return {
+          argv,
+          exitCode: 0,
+          stdout: JSON.stringify({
+            result: JSON.stringify(
+              validation ?? { activeIsInvalid: false, fields: [] },
+            ),
+          }),
           stderr: "",
           usedJson: true,
         };

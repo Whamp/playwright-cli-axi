@@ -35,6 +35,8 @@ export const CATALOG = {
     scroll:
       "Scroll the page: --to <ref> (scrollIntoView), --top, --bottom, or --by <px> (only one action at a time).",
     wait: "Wait for a page load state (load|domcontentloaded|networkidle) without manual sleep. When used via the --wait flag on navigation commands, a wait failure surfaces as a wait_warning field on the successful result instead of masking the navigation.",
+    find:
+      "Look up labelled page data from the current snapshot by text/name (e.g. find Classrooms -> {value, ref}), pairing adjacent label/value nodes so KPIs and stats read as structured values instead of grepping a flat tree.",
   } as Record<string, string>,
 };
 

@@ -474,3 +474,52 @@ describe("commandSuccessModel navigation flatten (P-1) and snapshot render (P-2)
     expect(full.snapshot_truncated).toBeUndefined();
   });
 });
+
+describe("commandSuccessModel eval/run-code flatten (C-2)", () => {
+  const json = (value: unknown) => ({
+    kind: "json" as const,
+    value,
+    isError: false,
+  });
+
+  it("C-2: lifts a scalar eval return to a single top-level result (no double result.result)", () => {
+    // upstream JSON-encodes the eval return value into { result: "<json>" }.
+    const model = commandSuccessModel("eval", json({ result: "42" }));
+    expect(model.result).toBe(42);
+    expect(JSON.stringify(model)).not.toContain('"result":{"result"');
+  });
+
+  it("C-2: recovers a string eval return without triple-escaping", () => {
+    const model = commandSuccessModel(
+      "eval",
+      json({ result: JSON.stringify("https://example.com/") }),
+    );
+    expect(model.result).toBe("https://example.com/");
+    // not a JSON-escaped one-line string of a string
+    expect(JSON.stringify(model)).not.toContain('\\"https');
+  });
+
+  it("C-2: recovers booleans/objects and leaves non-JSON strings intact", () => {
+    expect(commandSuccessModel("eval", json({ result: "false" })).result).toBe(
+      false,
+    );
+    expect(
+      commandSuccessModel("eval", json({ result: '{"a":1}' })).result,
+    ).toEqual({ a: 1 });
+    // a bare non-JSON string survives unchanged (no throw)
+    expect(
+      commandSuccessModel("eval", json({ result: "not json" })).result,
+    ).toBe("not json");
+  });
+
+  it("C-2: flattens run-code returns the same way", () => {
+    expect(
+      commandSuccessModel("run-code", json({ result: "42" })).result,
+    ).toBe(42);
+  });
+
+  it("C-2: falls back to a plain result when the payload has no result key", () => {
+    const model = commandSuccessModel("eval", json({ ok: true }));
+    expect(model.result).toEqual({ ok: true });
+  });
+});
