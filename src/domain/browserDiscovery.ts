@@ -175,7 +175,20 @@ export function resolveDeps(deps: BrowserDiscoveryDeps = {}): Required<BrowserDi
  */
 function expandPath(path: string, env: Record<string, string | undefined>): string {
   if (!path.includes("%")) return path;
-  return path.replace(/%([^%]+)%/g, (_, name: string) => env[name] ?? "");
+  let expanded = path;
+  let hasUndefinedVar = false;
+  expanded = path.replace(/%([^%]+)%/g, (_, name: string) => {
+    const value = env[name];
+    if (value === undefined) {
+      hasUndefinedVar = true;
+      return "";
+    }
+    return value;
+  });
+  if (hasUndefinedVar) {
+    return "";
+  }
+  return expanded;
 }
 
 /**

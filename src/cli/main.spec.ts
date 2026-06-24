@@ -820,6 +820,30 @@ describe("runCli", () => {
     expect(result.stdout).toContain("command: click");
   });
 
+  it("P-4: scroll --to without value is a usage error", async () => {
+    const harness = await createHarness([]);
+    const result = await harness.run(["scroll", "--to"]);
+    expect(result.exitCode).toBe(2);
+    expect(result.stdout).toContain("kind: usage");
+    expect(result.stdout).toContain("--to requires a reference value");
+  });
+
+  it("P-4: scroll --by without value is a usage error", async () => {
+    const harness = await createHarness([]);
+    const result = await harness.run(["scroll", "--by"]);
+    expect(result.exitCode).toBe(2);
+    expect(result.stdout).toContain("kind: usage");
+    expect(result.stdout).toContain("--by requires a pixel value");
+  });
+
+  it("P-5: wait --timeout zero is a usage error", async () => {
+    const harness = await createHarness([]);
+    const result = await harness.run(["wait", "--timeout", "0"]);
+    expect(result.exitCode).toBe(2);
+    expect(result.stdout).toContain("kind: usage");
+    expect(result.stdout).toContain("timeout must be a positive integer");
+  });
+
   it("F-4: video-chapters reads the chapter manifest with offsets", async () => {
     const harness = await createHarness([
       { stdout: "Video recording started." },

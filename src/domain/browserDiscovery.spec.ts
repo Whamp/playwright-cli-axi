@@ -92,6 +92,23 @@ describe("browser discovery (F-2)", () => {
       expect(result.browser?.channel).toBe("msedge");
     });
 
+    it("Windows: skips %LOCALAPPDATA% path when env var is undefined", () => {
+      const edge = "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
+      const result = discoverSystemBrowser({
+        platform: "win32",
+        env: {}, // LOCALAPPDATA not set
+        exists: (path: string) => {
+          // Should not try to check malformed paths starting with backslash
+          if (path.startsWith("\\")) return false;
+          return path === edge;
+        },
+      });
+      // Falls back to Edge since Chrome path requires undefined LOCALAPPDATA
+      expect(result.browser?.channel).toBe("msedge");
+      // The malformed %LOCALAPPDATA% path should not appear in detected
+      expect(result.detected.some((b) => b.path.startsWith("\\"))).toBe(false);
+    });
+
     it("returns null browser with empty detected when nothing is installed", () => {
       const result = discoverSystemBrowser({
         platform: "linux",

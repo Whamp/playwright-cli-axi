@@ -244,8 +244,7 @@ function navigationModel(
   for (const [key, child] of Object.entries(value)) {
     if (key === "result" && isObject(child) && "snapshot" in child) {
       // Lift the snapshot out of the redundant `result` wrapper.
-      if ("snapshot" in child)
-        lifted.snapshot = resolveSnapshot(simpleValue(child.snapshot), options.artifactBase);
+      lifted.snapshot = resolveSnapshot(simpleValue(child.snapshot), options.artifactBase);
       // Keep any non-snapshot siblings of the inner result.
       for (const [innerKey, innerChild] of Object.entries(child)) {
         if (innerKey === "snapshot") continue;
@@ -273,7 +272,14 @@ function resolveSnapshot(snapshot: ToonValue, artifactBase?: string): ToonValue 
   if (isObject(snapshot) && typeof snapshot.file === "string") {
     return { ...snapshot, file: resolveAgainst(snapshot.file, artifactBase) };
   }
-  if (typeof snapshot === "string" && snapshot.includes("\n")) return snapshot; // a11y tree text
+  if (typeof snapshot === "string" && snapshot.includes("\n")) {
+    // A11y tree text: multi-line YAML-like tree structure starting with "- "
+    // More robust than just checking for newlines
+    const trimmed = snapshot.trimStart();
+    if (trimmed.startsWith("- ")) {
+      return snapshot;
+    }
+  }
   if (typeof snapshot === "string") return resolveAgainst(snapshot, artifactBase);
   return snapshot;
 }

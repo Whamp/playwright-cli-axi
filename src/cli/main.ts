@@ -287,12 +287,25 @@ async function runScrollCommand(
   let where: "top" | "bottom" | undefined;
   for (let i = 0; i < rest.length; i += 1) {
     const a = rest[i]!;
-    if (a === "--to") toRef = rest[i + 1];
-    else if (a.startsWith("--to=")) toRef = a.slice("--to=".length);
-    else if (a === "--by") byPx = rest[i + 1];
-    else if (a.startsWith("--by=")) byPx = a.slice("--by=".length);
-    else if (a === "--top") where = "top";
-    else if (a === "--bottom") where = "bottom";
+    if (a === "--to") {
+      const next = rest[i + 1];
+      if (next === undefined || next.startsWith("--"))
+        return usageError("scroll", "--to requires a reference value");
+      toRef = next;
+    } else if (a.startsWith("--to=")) {
+      toRef = a.slice("--to=".length);
+    } else if (a === "--by") {
+      const next = rest[i + 1];
+      if (next === undefined || next.startsWith("--"))
+        return usageError("scroll", "--by requires a pixel value");
+      byPx = next;
+    } else if (a.startsWith("--by=")) {
+      byPx = a.slice("--by=".length);
+    } else if (a === "--top") {
+      where = "top";
+    } else if (a === "--bottom") {
+      where = "bottom";
+    }
   }
   let evalArgv: string[];
   let description: string;
@@ -366,7 +379,7 @@ async function runWaitCommand(
       "wait",
       "--state must be one of load, domcontentloaded, networkidle",
     );
-  if (!/^\d+$/.test(timeout))
+  if (!/^[1-9]\d*$/.test(timeout))
     return usageError("wait", "--timeout must be a positive integer (ms)");
   const code = `await page.waitForLoadState('${state}', { timeout: ${timeout} }).catch(() => {})`;
   const run = await deps.upstream(["run-code", code]);
