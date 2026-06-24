@@ -51,6 +51,27 @@ You can get live browser and video context at session start in two complementary
 - `npx -y playwright-cli-axi wait` — Wait for a page load state (load|domcontentloaded|networkidle) without manual sleep. When used via the --wait flag on navigation commands, a wait failure surfaces as a wait_warning field on the successful result instead of masking the navigation.
 - `npx -y playwright-cli-axi find` — Look up labelled page data from the current snapshot by text/name (e.g. find Classrooms -> {value, ref}), pairing adjacent label/value nodes so KPIs and stats read as structured values instead of grepping a flat tree.
 
+### Navigation flags
+
+Navigation commands (`open`, `goto`, `click`, `dblclick`, etc.) support two optional flags for deterministic post-action state:
+
+- `--wait <state>` — Wait for a Playwright load state (`load|domcontentloaded|networkidle`) after the action. If the wait fails after a successful navigation, the primary result is returned with a `wait_warning` field instead of masking the success. Network-only waits may race SPA route mounting.
+- `--settle [state]` — Wait for the load state **and** poll `page.url()` until it stops changing (deterministic SPA settle). Default state is `networkidle`. Use this for SPA navigations where `--wait networkidle` does not settle the client-side route.
+
+### HTML5 validation probing
+
+After a submit-triggering `click` or `dblclick`, the wrapper probes HTML5 constraint validation and surfaces `validation: { ok: false, invalid_fields: [...] }` when the browser appears to have blocked the submit (focused an invalid field). HTML5 validation bubbles are not in the accessibility tree, so without this probing, a submit blocked by an invalid field looks identical to a successful submit. The primary click result and exit code are preserved either way.
+
+### Output improvements
+
+The wrapper enhances upstream output for agent usability:
+
+- **Flattened navigation results**: Commands like `open`, `goto`, and `click` return snapshot artifacts at the top level instead of buried under `result.result.snapshot`, making file paths immediately accessible.
+- **Readable snapshot rendering**: Snapshot content renders as readable single-layer text rather than double-escaped JSON-string-of-YAML, improving parseability.
+- **Enhanced error hints**: Usage errors for commands like `screenshot`, `pdf`, and `snapshot` include inline suggestions (e.g., `--filename <path>`) to reduce trial-and-error.
+- **Absolute snapshot paths**: Auto-generated snapshot file paths are returned as absolute paths so they're reliably findable regardless of the upstream artifact directory.
+- **Flattened eval results**: `eval` and `run-code` commands flatten their single return value to a top-level `result` and undo upstream's JSON encoding, so `eval "location.href"` returns the URL directly (not `result: result: "\"…\""`). Note: `eval` runs in the **browser DOM context** (no `page`); `run-code` runs in the **node context** and receives `page` (use an `async (page) => { ... }` arrow expression).
+
 ## Video workflow
 
 - `npx -y playwright-cli-axi video-start` — Start recording the current browser session to an optional WebM file.
