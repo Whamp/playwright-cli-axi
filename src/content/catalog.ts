@@ -133,8 +133,6 @@ ${wrapperLines}
 
 ${skillDocSections}
 
-
-
 ## Video workflow
 
 ${commandLines}
