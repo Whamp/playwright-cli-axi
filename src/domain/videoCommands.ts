@@ -354,10 +354,11 @@ export function extractVideoArtifacts(
   if (parsed.kind === "json" && isObject(parsed.value)) {
     const videos = stringArray(parsed.value.videos);
     if (videos.length > 0) {
-      const otherArtifacts = [
+      const filesAndLastFiles = new Set([
         ...stringArray(parsed.value.files),
         ...stringArray(parsed.value.lastFiles),
-      ].filter((path) => !videos.includes(path));
+      ]);
+      const otherArtifacts = [...filesAndLastFiles].filter((path) => !videos.includes(path));
       return { videos, otherArtifacts, all: [...videos, ...otherArtifacts] };
     }
     for (const key of ["files", "lastFiles"]) {

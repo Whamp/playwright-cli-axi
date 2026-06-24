@@ -1,3 +1,5 @@
+const MAX_TOON_DEPTH = 40;
+
 export type ToonValue =
   | null
   | boolean
@@ -28,18 +30,21 @@ export function toToon(value: ToonValue): string {
 }
 
 function encodeRoot(value: ToonValue): string[] {
-  if (Array.isArray(value)) return encodeNamed("items", value, 0);
+  if (Array.isArray(value)) return encodeNamed("items", value, 0, 0);
   if (isPlainObject(value)) {
     return Object.entries(value).flatMap(([key, child]) =>
-      encodeNamed(key, child, 0),
+      encodeNamed(key, child, 0, 0),
     );
   }
   return [formatScalar(scalarOrNull(value))];
 }
 
-function encodeNamed(key: string, value: ToonValue, indent: number): string[] {
+function encodeNamed(key: string, value: ToonValue, indent: number, depth: number): string[] {
   const prefix = " ".repeat(indent);
   const name = formatKey(key);
+  if (depth > MAX_TOON_DEPTH) {
+    return [`${prefix}${name}: [max-depth]`];
+  }
   if (isTable(value)) {
     const fields = value.fields.map(formatKey);
     const header = `${prefix}${name}[${value.rows.length}]{${fields.join(",")}}:`;
@@ -64,12 +69,12 @@ function encodeNamed(key: string, value: ToonValue, indent: number): string[] {
             `${" ".repeat(indent + 2)}- ${formatKey(firstKey)}: ${formatScalar(scalarOrNull(firstValue as ToonValue))}`,
           );
           for (const [childKey, childValue] of entries.slice(1)) {
-            lines.push(...encodeNamed(childKey, childValue, indent + 4));
+            lines.push(...encodeNamed(childKey, childValue, indent + 4, depth + 1));
           }
         } else {
           lines.push(`${" ".repeat(indent + 2)}-`);
           for (const [childKey, childValue] of entries) {
-            lines.push(...encodeNamed(childKey, childValue, indent + 4));
+            lines.push(...encodeNamed(childKey, childValue, indent + 4, depth + 1));
           }
         }
       } else {
@@ -86,7 +91,7 @@ function encodeNamed(key: string, value: ToonValue, indent: number): string[] {
     return [
       `${prefix}${name}:`,
       ...entries.flatMap(([childKey, childValue]) =>
-        encodeNamed(childKey, childValue, indent + 2),
+        encodeNamed(childKey, childValue, indent + 2, depth + 1),
       ),
     ];
   }
