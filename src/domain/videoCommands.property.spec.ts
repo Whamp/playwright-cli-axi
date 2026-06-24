@@ -15,6 +15,8 @@ import {
   extractVideoLinks,
   handleVideoCommand,
   validateVideoCommand,
+  videoStartConflicts,
+  videoStartConflictMessage,
 } from "./videoCommands.js";
 import type { VideoCommandName } from "./commandSurface.js";
 import {
@@ -23,8 +25,7 @@ import {
   type VideoStore,
 } from "./videoState.js";
 
-const durationArb = fc.integer({ min: 0, max: 10_000 }).map(String);
-const positionArb = fc.constantFrom(
+const durationArb = fc.integer({ min: 0, max: 10_000 }).map(String);const positionArb = fc.constantFrom(
   "top-left",
   "top",
   "top-right",
@@ -278,7 +279,12 @@ describe("videoCommands properties", () => {
           });
 
           if (step.kind === "start" && model.recording.status === "active") {
-            expect(result.exitCode).toBe(2);
+            // New video-start contract (AXI principle 6): while active, a
+            // request for the SAME file is an idempotent exit-0 no-op, while a
+            // request for a DIFFERENT file is an exit-2 conflict. Neither calls
+            // upstream nor mutates state.
+            const sameTarget = step.file === model.recording.requestedFile;
+            expect(result.exitCode).toBe(sameTarget ? 0 : 2);
             expect(upstreamCalls).toHaveLength(beforeCalls);
           } else {
             expect(result.exitCode).toBe(0);
@@ -359,3 +365,67 @@ function applyStep(
       break;
   }
 }
+
+describe("properties: video-start while active (AXI idempotency)", () => {
+  it("a request never conflicts when it specifies no new target", () => {
+    const state = defaultVideoState("/repo", "key", "default");
+    state.recording = {
+      status: "active",
+      requestedFile: "./rec.webm",
+      requestedSize: "320x240",
+    };
+    expect(videoStartConflicts(state, { positionals: [], flags: {} })).toBe(
+      false,
+    );
+  });
+
+  it("classifies same-target requests as no-conflict and differing targets as conflict", () => {
+    const activeFile = "./active.webm";
+    const activeSize = "320x240";
+    const state = defaultVideoState("/repo", "key", "default");
+    state.recording = {
+      status: "active",
+      requestedFile: activeFile,
+      requestedSize: activeSize,
+    };
+    fc.assert(
+      fc.property(
+        fc.option(safeArgArb, { nil: undefined }),
+        fc.option(videoSizeArb, { nil: undefined }),
+        (file, size) => {
+          const flags: Record<string, string> = size === undefined ? {} : { size };
+          const conflicts = videoStartConflicts(state, {
+            positionals: file === undefined ? [] : [file],
+            flags,
+          });
+          const fileDiffers = file !== undefined && file !== activeFile;
+          const sizeDiffers = size !== undefined && size !== activeSize;
+          expect(conflicts).toBe(fileDiffers || sizeDiffers);
+        },
+      ),
+      propertyOptions,
+    );
+  });
+
+  it("always suggests video-stop in a conflict message naming the active target", () => {
+    const state = defaultVideoState("/repo", "key", "default");
+    state.recording = {
+      status: "active",
+      requestedFile: "./active.webm",
+      requestedSize: "320x240",
+    };
+    fc.assert(
+      fc.property(safeArgArb, (file) => {
+        const message = videoStartConflictMessage(state, {
+          positionals: [file],
+          flags: {},
+        });
+        expect(message).toContain("already active");
+        expect(message).toContain("./active.webm");
+        expect(message).toContain("video-stop");
+        expect(message).toContain(`file ${file}`);
+      }),
+      propertyOptions,
+    );
+  });
+});

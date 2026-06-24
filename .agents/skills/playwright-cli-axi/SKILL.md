@@ -16,6 +16,14 @@ Use this skill when an agent needs to drive Playwright from a shell, inspect bro
 - The wrapper preserves the upstream `@playwright/cli` command surface and keeps a command-matrix drift test against upstream help metadata.
 - User-supplied `--json` is ignored because wrapper stdout remains TOON.
 - Browser-not-open and missing-browser failures become actionable structured errors.
+- `--version` prints a clean TOON version; `--full` bypasses result truncation; `--fields` selects additional list columns.
+
+## Ambient context (two ways)
+
+You can get live browser and video context at session start in two complementary ways. You only need one:
+
+1. **Session hook (recommended)**: run `npx -y playwright-cli-axi setup` to install a SessionStart hook for Claude Code and Codex. It is idempotent, repairs stale paths, composes with other hooks (e.g. mainline), and emits a token-budgeted directory-scoped context slice.
+2. **This skill**: loads on demand with no per-session cost.
 
 ## Upstream command matrix
 
@@ -31,6 +39,11 @@ Use this skill when an agent needs to drive Playwright from a shell, inspect bro
 - **DevTools and diagnostics**: `console`, `run-code`, `show`, `pause-at`, `resume`, `step-over`, `generate-locator`, `highlight`, `tray` — Inspect console output, run Playwright code, show dashboards, debug, and highlight elements.
 - **Install and config**: `install`, `install-browser`, `config-print` — Install browsers/skills and inspect effective configuration.
 - **Video**: `video-start`, `video-stop`, `video-chapter`, `video-show-actions`, `video-hide-actions` — Record WebM videos and annotate action/chapter overlays.
+
+## Wrapper commands
+
+- `npx -y playwright-cli-axi setup` — Install/repair the SessionStart hook so agent sessions start with live browser and video context.
+- `npx -y playwright-cli-axi context` — Print the token-budgeted session-start context slice (invoked by the hook).
 
 ## Video workflow
 

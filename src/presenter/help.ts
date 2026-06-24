@@ -125,9 +125,42 @@ const VIDEO_HELP: Record<string, HelpDefinition> = {
   },
 };
 
+const WRAPPER_HELP: Record<string, HelpDefinition> = {
+  setup: {
+    command: "setup",
+    summary:
+      "Install/repair the SessionStart hook for Claude Code and Codex so agent sessions start with live context.",
+    usage: "playwright-cli-axi setup [--scope user|project]",
+    args: [],
+    flags: [
+      {
+        name: "--scope",
+        value: "user|project",
+        default: "user",
+        description: "install into ~/.claude and ~/.codex (user) or .claude and .codex in cwd (project)",
+      },
+    ],
+    examples: [
+      "playwright-cli-axi setup",
+      "playwright-cli-axi setup --scope project",
+    ],
+  },
+  context: {
+    command: "context",
+    summary:
+      "Print a token-budgeted session-start context slice (invoked by the SessionStart hook).",
+    usage: "playwright-cli-axi context",
+    args: [],
+    flags: [],
+    examples: ["playwright-cli-axi context"],
+  },
+};
+
 export function helpToStdout(command?: string): string {
   if (command && VIDEO_HELP[command])
     return toToon(helpModel(VIDEO_HELP[command]));
+  if (command && WRAPPER_HELP[command])
+    return toToon(helpModel(WRAPPER_HELP[command]));
   return toToon({
     command: CATALOG.binary,
     summary: CATALOG.description,

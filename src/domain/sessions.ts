@@ -28,6 +28,58 @@ export interface ChannelSessionRow extends Record<string, ToonValue> {
   endpoint: string;
 }
 
+/** Default (minimal) table schemas for list output. */
+export const BROWSER_TABLE_FIELDS = [
+  "id",
+  "name",
+  "status",
+] as const;
+/** Every browser column the wrapper can capture from upstream. */
+export const BROWSER_TABLE_FIELDS_ALL = [
+  "id",
+  "name",
+  "status",
+  "browserType",
+  "version",
+  "compatible",
+  "attached",
+  "userDataDir",
+  "headed",
+];
+export const SERVER_TABLE_FIELDS = [
+  "title",
+  "browser",
+  "version",
+  "dataDir",
+  "workspace",
+];
+export const CHANNEL_TABLE_FIELDS = [
+  "channel",
+  "dataDir",
+  "extension",
+  "endpoint",
+];
+
+/**
+ * Resolve the table columns for a `--fields` request.
+ *
+ * With no request (or only unknown fields), return the minimal default schema
+ * (AXI principle 2). With a request, return the requested known fields in the
+ * caller's order, so agents can both trim and extend the default columns.
+ */
+export function resolveTableFields(
+  requested: string[] | undefined,
+  defaults: readonly string[],
+  available: readonly string[],
+): string[] {
+  if (!requested || requested.length === 0) return [...defaults];
+  const availableSet = new Set(available);
+  const resolved = requested
+    .map((field) => field.trim())
+    .filter((field) => availableSet.has(field));
+  return resolved.length > 0 ? resolved : [...defaults];
+}
+
 export interface CloseStatus {
   session: string;
   status: string;
@@ -92,11 +144,20 @@ function emptySessions(): SessionSummary {
 
 function normalizeBrowser(browser: unknown, index: number): BrowserRow {
   if (!isObject(browser))
-    return { id: String(index + 1), name: "browser", status: "open" };
+  return { id: String(index + 1), name: "browser", status: "open" };
   return {
     id: stringField(browser, ["id", "browserId", "name"], String(index + 1)),
     name: stringField(browser, ["name", "browserName", "type"], "browser"),
     status: stringField(browser, ["status", "state"], "open"),
+    browserType: stringField(browser, ["browserType", "type"], ""),
+    version: stringField(browser, ["version"], ""),
+    compatible: booleanField(browser, ["compatible"]),
+    attached: booleanField(browser, ["attached"]),
+    userDataDir:
+      browser.userDataDir === null || browser.userDataDir === undefined
+        ? "<in-memory>"
+        : stringField(browser, ["userDataDir", "dataDir"], "<in-memory>"),
+    headed: browser.headed === undefined ? "" : booleanField(browser, ["headed"]),
   };
 }
 

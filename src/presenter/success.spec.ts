@@ -251,3 +251,107 @@ describe("commandSuccessModel", () => {
     expect(output).toContain("1305 chars total");
   });
 });
+
+describe("commandSuccessModel --fields (AXI principle 2)", () => {
+  it("defaults to the minimal id/name/status browser schema", () => {
+    const parsed = {
+      kind: "json",
+      value: {
+        browsers: [
+          {
+            id: "b1",
+            name: "chromium",
+            status: "open",
+            browserType: "chromium",
+            version: "1.2.3",
+          },
+        ],
+      },
+      isError: false,
+    } as const;
+    const output = toToon(commandSuccessModel("list", parsed));
+    expect(output).toContain("browser_rows[1]{id,name,status}:");
+  });
+
+  it("extends browser columns when --fields requests additional fields", () => {
+    const parsed = {
+      kind: "json",
+      value: {
+        browsers: [
+          {
+            id: "b1",
+            name: "chromium",
+            status: "open",
+            browserType: "chromium",
+            version: "1.2.3",
+            compatible: true,
+            attached: false,
+          },
+        ],
+      },
+      isError: false,
+    } as const;
+    const output = toToon(
+      commandSuccessModel("list", parsed, {
+        fields: ["id", "browserType", "version", "compatible"],
+      }),
+    );
+    expect(output).toContain(
+      "browser_rows[1]{id,browserType,version,compatible}:",
+    );
+    expect(output).toContain("b1,chromium,1.2.3,yes");
+  });
+
+  it("falls back to the default schema when only unknown fields are requested", () => {
+    const parsed = {
+      kind: "json",
+      value: { browsers: [{ id: "b1", name: "x", status: "open" }] },
+      isError: false,
+    } as const;
+    const output = toToon(
+      commandSuccessModel("list", parsed, { fields: ["nonsense"] }),
+    );
+    expect(output).toContain("browser_rows[1]{id,name,status}:");
+  });
+});
+
+describe("commandSuccessModel --full (AXI principle 3)", () => {
+  it("truncates large generic JSON results with a byte count and --full hint", () => {
+    const big = { snapshot: "x".repeat(3000) };
+    const parsed = {
+      kind: "json",
+      value: big,
+      isError: false,
+    } as const;
+    const output = toToon(commandSuccessModel("config-print", parsed));
+    expect(output).toContain("result_truncated: true");
+    expect(output).toContain("result_bytes:");
+    expect(output).toContain("help[1]:");
+    expect(output).toContain("playwright-cli-axi config-print --full");
+  });
+
+  it("returns the full result when --full is set", () => {
+    const big = { snapshot: "x".repeat(3000) };
+    const parsed = {
+      kind: "json",
+      value: big,
+      isError: false,
+    } as const;
+    const output = toToon(
+      commandSuccessModel("config-print", parsed, { full: true }),
+    );
+    expect(output).not.toContain("result_truncated");
+    expect(output).toContain("snapshot:");
+  });
+
+  it("does not truncate small generic JSON results", () => {
+    const parsed = {
+      kind: "json",
+      value: { ok: true },
+      isError: false,
+    } as const;
+    const output = toToon(commandSuccessModel("config-print", parsed));
+    expect(output).not.toContain("result_truncated");
+    expect(output).not.toContain("--full");
+  });
+});

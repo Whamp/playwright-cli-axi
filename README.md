@@ -153,6 +153,28 @@ tests until they are assigned to a wrapper command family.
 | Install and config     | `install`, `install-browser`, `config-print`                                                                                                                                  |
 | Video                  | `video-start`, `video-stop`, `video-chapter`, `video-show-actions`, `video-hide-actions`                                                                                      |
 
+## Wrapper commands
+
+- `setup` — Install/repair the SessionStart hook for Claude Code and Codex
+- `context` — Print the token-budgeted session-start context slice (invoked by the hook)
+
+## Ambient context (session hook)
+
+Run `playwright-cli-axi setup` to install a `SessionStart` hook for Claude Code
+and Codex that emits a token-budgeted, directory-scoped context slice on every
+session start — browser count, video status, and relevant next steps. The hook
+is idempotent, repairs stale executable paths after relocation, uses a
+PATH-verified binary name when available (falling back to an absolute path),
+and composes with other hooks such as mainline without clobbering them.
+
+```sh
+playwright-cli-axi setup                    # install into ~/.claude and ~/.codex
+playwright-cli-axi setup --scope project     # install into .claude and .codex in cwd
+```
+
+The installable skill (below) is a secondary, lower-overhead alternative that
+loads on demand with no per-session token cost. You only need one of the two.
+
 ## Video support
 
 Supported video commands:
@@ -253,6 +275,13 @@ The abandonment scope is derived from a single close-like command registry:
 The home view includes recent sidecar details such as requested
 file/size, timestamps, and recent reported files when they exist.
 
+## Global flags
+
+- `--version` / `-v` — Print a clean TOON version (wrapper + upstream), not forwarded to upstream
+- `--full` — Bypass generic JSON result truncation (results above 1500 bytes are previewed by default with a byte count and this escape hatch)
+- `--fields a,b,c` — Select additional list columns (defaults to `id,name,status`; available browser fields include `browserType`, `version`, `compatible`, `attached`, `userDataDir`, `headed`)
+- `--json` — Ignored (wrapper stdout is always TOON)
+
 ## Error handling
 
 All errors print structured TOON to stdout with actionable help suggestions:
@@ -261,7 +290,7 @@ All errors print structured TOON to stdout with actionable help suggestions:
 - `browser_not_open` — Browser must be opened first (exit code 1)
 - `missing_browser` — Chrome installation is missing (exit code 1)
 - `upstream_error` — Upstream command failed (exit code 1)
-- `already_recording` — Video recording is already active (exit code 2)
+- `already_recording` — Video recording is already active with a conflicting target (exit code 2); same-target re-start is an exit-0 idempotent no-op
 
 Example error output:
 

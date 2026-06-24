@@ -44,6 +44,42 @@ describe("runCli", () => {
     expect(result.stdout).not.toMatch(/Usage:/);
   });
 
+  it("should print a clean structured version for --version and -v without calling upstream", async () => {
+    // Arrange
+    const harness = await createHarness([]);
+
+    // Act
+    const longResult = await harness.run(["--version"]);
+    const shortResult = await harness.run(["-v"]);
+
+    // Assert
+    expect(longResult.exitCode).toBe(0);
+    expect(shortResult.exitCode).toBe(0);
+    expect(harness.upstreamRuns).toEqual([]);
+    for (const result of [longResult, shortResult]) {
+      expect(result.stdout).toContain("command: playwright-cli-axi");
+      expect(result.stdout).toContain("version: 0.1.0");
+      expect(result.stdout).toContain("upstream:");
+      expect(result.stdout).toContain("package: @playwright/cli");
+      expect(result.stdout).toContain("version: 0.1.14");
+      // must NOT be the old awkward generic-command wrap
+      expect(result.stdout).not.toContain("command: --version");
+      expect(result.stdout).not.toContain("output: 0.1.14");
+    }
+  });
+
+  it("should pass --version through to upstream when a command resolves", async () => {
+    // Arrange
+    const harness = await createHarness([{ stdout: "ok" }]);
+
+    // Act
+    const result = await harness.run(["list", "--version"]);
+
+    // Assert: not intercepted; forwarded to upstream unchanged
+    expect(result.exitCode).toBe(0);
+    expect(harness.upstreamRuns).toEqual([["list", "--version"]]);
+  });
+
   it("should format upstream list JSON as compact TOON with full list --all inventory", async () => {
     // Arrange
     const harness = await createHarness([
@@ -266,14 +302,56 @@ describe("runCli", () => {
     expect(await harness.stateFiles()).toEqual([]);
   });
 
-  it("should reject duplicate video-start without mutating the active recording state", async () => {
+  it("should treat duplicate video-start with the same target as an idempotent exit-0 no-op", async () => {
     // Arrange
     const harness = await createHarness([
       { stdout: "Video recording started." },
     ]);
     await harness.run(["video-start", "./first.webm"]);
 
-    // Act
+    // Act: same target (file present, matches active)
+    const result = await harness.run(["video-start", "./first.webm"]);
+
+    // Assert: exit 0, no upstream call, active recording preserved and echoed
+    expect(result.exitCode).toBe(0);
+    expect(harness.upstreamRuns).toEqual([["video-start", "./first.webm"]]);
+    expect(result.stdout).toContain("status: ok");
+    expect(result.stdout).toContain("note: recording already active; no-op");
+    expect(result.stdout).toContain("requestedFile: ./first.webm");
+    const state = await harness.readState();
+    expect(state.recording.status).toBe("active");
+    expect(state.recording.requestedFile).toBe("./first.webm");
+  });
+
+  it("should treat duplicate video-start with no target as an idempotent exit-0 no-op", async () => {
+    // Arrange
+    const harness = await createHarness([
+      { stdout: "Video recording started." },
+    ]);
+    await harness.run(["video-start", "./rec.webm", "--size", "320x240"]);
+
+    // Act: no positional/size -> not requesting a change -> idempotent
+    const result = await harness.run(["video-start"]);
+
+    // Assert
+    expect(result.exitCode).toBe(0);
+    expect(harness.upstreamRuns).toEqual([
+      ["video-start", "./rec.webm", "--size", "320x240"],
+    ]);
+    expect(result.stdout).toContain("note: recording already active; no-op");
+    const state = await harness.readState();
+    expect(state.recording.status).toBe("active");
+    expect(state.recording.requestedFile).toBe("./rec.webm");
+  });
+
+  it("should reject video-start with a conflicting target as an exit-2 already_recording error", async () => {
+    // Arrange
+    const harness = await createHarness([
+      { stdout: "Video recording started." },
+    ]);
+    await harness.run(["video-start", "./first.webm"]);
+
+    // Act: different file -> genuine conflict
     const result = await harness.run(["video-start", "./second.webm"]);
 
     // Assert
@@ -281,7 +359,7 @@ describe("runCli", () => {
     expect(harness.upstreamRuns).toEqual([["video-start", "./first.webm"]]);
     expect(result.stdout).toContain("kind: already_recording");
     expect(result.stdout).toContain(
-      "video recording is already active; run video-stop first",
+      "recording is already active (file ./first.webm); run video-stop before starting a recording to file ./second.webm",
     );
     const state = await harness.readState();
     expect(state.recording.status).toBe("active");
@@ -636,6 +714,7 @@ async function createHarness(fakeRuns: FakeRun[]) {
     env: { XDG_STATE_HOME: join(stateRoot, "state"), HOME: "/home/will" },
     now: () => new Date("2026-06-22T12:00:00.000Z"),
     upstreamVersion: "0.1.14",
+    wrapperVersion: "0.1.0",
     upstream: async (argv): Promise<UpstreamRun> => {
       upstreamRuns.push(argv);
       const next = fakeRuns.shift();

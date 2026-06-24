@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { argsAfterCommand, commandName, sessionFromArgv, shouldInjectJson, stripJsonFlags } from './commandSurface.js';
+import { argsAfterCommand, commandName, hasVersionFlag, sessionFromArgv, shouldInjectJson, stripJsonFlags } from './commandSurface.js';
 
 describe('commandSurface', () => {
   it('should strip user --json while injecting JSON only for supported upstream commands', () => {
@@ -23,6 +23,18 @@ describe('commandSurface', () => {
     expect(commandName(['-s', 'demo', 'video-start'])).toBe('video-start');
     expect(commandName(['--json', '--session=demo', 'close-all'])).toBe('close-all');
     expect(sessionFromArgv(['video-start', '-s', 'demo'])).toBe('demo');
+  });
+
+  it('should detect top-level version requests without intercepting a command own flags', () => {
+    // Act / Assert
+    expect(hasVersionFlag(['--version'])).toBe(true);
+    expect(hasVersionFlag(['-v'])).toBe(true);
+    expect(hasVersionFlag(['--json', '--version'])).toBe(true);
+    // A command resolves -> version not requested (passthrough preserved)
+    expect(hasVersionFlag(['list', '--version'])).toBe(false);
+    expect(hasVersionFlag(['list', '-v'])).toBe(false);
+    expect(hasVersionFlag(['video-start', './out.webm'])).toBe(false);
+    expect(hasVersionFlag([])).toBe(false);
   });
 
   it('should exclude global flags from video command validation args without dropping upstream argv', () => {

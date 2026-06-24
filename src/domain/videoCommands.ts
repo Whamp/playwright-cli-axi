@@ -49,12 +49,36 @@ export async function handleVideoCommand(
     };
   }
 
-  if (command === "video-start" && state.recording.status === "active") {
+  /*
+   * AXI principle 6 (idempotent mutations): `video-start` while a recording
+   * is already active is resolved deliberately rather than always erroring.
+   *
+   * - If the caller requests NO new target, or requests the SAME file/size as
+   *   the active recording, the desired state already exists. Return exit 0 as
+   *   a structured no-op so agents need not treat a non-fatal condition as an
+   *   error. The active recording is preserved untouched and its state is
+   *   echoed back so the agent can see what is actually being recorded.
+   * - If the caller requests a DIFFERENT file/size, the intent genuinely
+   *   cannot be satisfied without losing the in-flight recording, so reserve
+   *   exit 2 (`already_recording`) and point the agent at `video-stop`.
+   */
+  if (
+    command === "video-start" &&
+    state.recording.status === "active" &&
+    !videoStartConflicts(state, validation.options)
+  ) {
+    return videoStartNoOp(command, state);
+  }
+  if (
+    command === "video-start" &&
+    state.recording.status === "active" &&
+    videoStartConflicts(state, validation.options)
+  ) {
     return {
       exitCode: 2,
       stdout: errorToStdout({
         kind: "already_recording",
-        message: "video recording is already active; run video-stop first",
+        message: videoStartConflictMessage(state, validation.options),
         command: context.argv.join(" "),
         help: ["playwright-cli-axi video-stop"],
       }),
@@ -335,6 +359,75 @@ export interface VideoArtifacts {
   videos: string[];
   otherArtifacts: string[];
   all: string[];
+}
+
+/**
+ * Whether a `video-start` request conflicts with an already-active recording.
+ *
+ * A request only conflicts when it specifies a NEW target that differs from the
+ * active recording. Omitted file/size (undefined) never conflicts, because the
+ * caller is not requesting a change.
+ */
+export function videoStartConflicts(
+  state: VideoSidecarState,
+  options: VideoOptions,
+): boolean {
+  const activeFile = state.recording.requestedFile;
+  const activeSize = state.recording.requestedSize;
+  const requestedFile = options.positionals[0];
+  const requestedSize = options.flags.size;
+  if (requestedFile !== undefined && requestedFile !== activeFile) return true;
+  if (requestedSize !== undefined && requestedSize !== activeSize) return true;
+  return false;
+}
+
+export function videoStartConflictMessage(
+  state: VideoSidecarState,
+  options: VideoOptions,
+): string {
+  const active = describeTarget(
+    state.recording.requestedFile,
+    state.recording.requestedSize,
+  );
+  const requested = describeTarget(options.positionals[0], options.flags.size);
+  return `recording is already active (${active}); run video-stop before starting a recording to ${requested}`;
+}
+
+function describeTarget(
+  file: string | undefined,
+  size: string | undefined,
+): string {
+  const parts: string[] = [];
+  if (file !== undefined) parts.push(`file ${file}`);
+  if (size !== undefined) parts.push(`size ${size}`);
+  return parts.length > 0 ? parts.join(" at ") : "no explicit target";
+}
+
+/**
+ * Exit-0 structured no-op for an idempotent `video-start` (active recording
+ * matches the request, or no new target was requested). The active recording
+ * is preserved untouched and echoed back.
+ */
+function videoStartNoOp(
+  command: VideoCommandName,
+  state: VideoSidecarState,
+): CliResult {
+  const activeFile = state.recording.requestedFile;
+  const activeSize = state.recording.requestedSize;
+  return {
+    exitCode: 0,
+    stdout: toToon({
+      command,
+      status: "ok",
+      recording: {
+        status: "active",
+        ...(activeFile ? { requestedFile: activeFile } : {}),
+        ...(activeSize ? { requestedSize: activeSize } : {}),
+        source: "sidecar",
+        note: "recording already active; no-op",
+      },
+    } as ToonValue),
+  };
 }
 
 export function extractVideoLinks(

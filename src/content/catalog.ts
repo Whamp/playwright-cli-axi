@@ -23,10 +23,19 @@ export const CATALOG = {
     "video-hide-actions": "Stop overlaying action callouts on the page.",
   },
   commandGroups: COMMAND_GROUPS,
+  wrapperCommands: {
+    setup:
+      "Install/repair the SessionStart hook so agent sessions start with live browser and video context.",
+    context:
+      "Print the token-budgeted session-start context slice (invoked by the hook).",
+  } as Record<string, string>,
 };
 
 export function renderSkillMarkdown(): string {
   const commandLines = Object.entries(CATALOG.videoCommands)
+    .map(([name, summary]) => `- \`${CATALOG.npxBinary} ${name}\` — ${summary}`)
+    .join("\n");
+  const wrapperLines = Object.entries(CATALOG.wrapperCommands)
     .map(([name, summary]) => `- \`${CATALOG.npxBinary} ${name}\` — ${summary}`)
     .join("\n");
   const commandMatrix = CATALOG.commandGroups
@@ -65,10 +74,22 @@ Use this skill when an agent needs to drive Playwright from a shell, inspect bro
 - The wrapper preserves the upstream \`@playwright/cli\` command surface and keeps a command-matrix drift test against upstream help metadata.
 - User-supplied \`--json\` is ignored because wrapper stdout remains TOON.
 - Browser-not-open and missing-browser failures become actionable structured errors.
+- \`--version\` prints a clean TOON version; \`--full\` bypasses result truncation; \`--fields\` selects additional list columns.
+
+## Ambient context (two ways)
+
+You can get live browser and video context at session start in two complementary ways. You only need one:
+
+1. **Session hook (recommended)**: run \`${CATALOG.npxBinary} setup\` to install a SessionStart hook for Claude Code and Codex. It is idempotent, repairs stale paths, composes with other hooks (e.g. mainline), and emits a token-budgeted directory-scoped context slice.
+2. **This skill**: loads on demand with no per-session cost.
 
 ## Upstream command matrix
 
 ${commandMatrix}
+
+## Wrapper commands
+
+${wrapperLines}
 
 ## Video workflow
 

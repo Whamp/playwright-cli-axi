@@ -2,6 +2,11 @@ import {
   normalizeClosed,
   normalizeCloseStatus,
   normalizeSessions,
+  resolveTableFields,
+  BROWSER_TABLE_FIELDS,
+  BROWSER_TABLE_FIELDS_ALL,
+  SERVER_TABLE_FIELDS,
+  CHANNEL_TABLE_FIELDS,
 } from "../domain/sessions.js";
 import { commandGroupFor } from "../domain/upstreamCommands.js";
 import { isObject, type ParsedUpstream } from "../upstream/parse.js";
@@ -15,16 +20,26 @@ interface ArtifactRow extends Record<string, ToonValue> {
 
 const MAX_RESULT_DEPTH = 40;
 const ARTIFACT_SUMMARY_GROUP_IDS = new Set(["artifacts"]);
+/** Above this serialized size, generic JSON results are previewed with a total
+ * byte count and a `--full` escape hatch (AXI principle 3). */
+const MAX_RESULT_BYTES = 1500;
+
+export interface SuccessOptions {
+  full?: boolean;
+  fields?: string[];
+}
 
 export function commandSuccessModel(
   command: string,
   parsed: ParsedUpstream,
+  options: SuccessOptions = {},
 ): Record<string, ToonValue> {
   if (parsed.kind === "json") {
-    if (command === "list") return listModel(command, parsed.value);
+    if (command === "list")
+      return listModel(command, parsed.value, options.fields);
     if (command === "close") return closeModel(command, parsed.value);
     if (command === "close-all") return closeAllModel(command, parsed.value);
-    return familyResultModel(command, parsed.value);
+    return familyResultModel(command, parsed.value, options);
   }
 
   return {
@@ -36,8 +51,19 @@ export function commandSuccessModel(
   };
 }
 
-function listModel(command: string, value: unknown): Record<string, ToonValue> {
+function listModel(
+  command: string,
+  value: unknown,
+  fields?: string[],
+): Record<string, ToonValue> {
   const sessions = normalizeSessions(value);
+  const browserFields = resolveTableFields(
+    fields,
+    BROWSER_TABLE_FIELDS,
+    BROWSER_TABLE_FIELDS_ALL,
+  );
+  const serverFields = resolveTableFields(fields, SERVER_TABLE_FIELDS, SERVER_TABLE_FIELDS);
+  const channelFields = resolveTableFields(fields, CHANNEL_TABLE_FIELDS, CHANNEL_TABLE_FIELDS);
   return {
     ...baseModel(command),
     browsers: {
@@ -46,7 +72,7 @@ function listModel(command: string, value: unknown): Record<string, ToonValue> {
     },
     ...(sessions.browsers.rows.length > 0
       ? {
-          browser_rows: table(["id", "name", "status"], sessions.browsers.rows),
+          browser_rows: table(browserFields, sessions.browsers.rows),
         }
       : {}),
     servers: {
@@ -55,10 +81,7 @@ function listModel(command: string, value: unknown): Record<string, ToonValue> {
     },
     ...(sessions.servers.rows.length > 0
       ? {
-          server_rows: table(
-            ["title", "browser", "version", "dataDir", "workspace"],
-            sessions.servers.rows,
-          ),
+          server_rows: table(serverFields, sessions.servers.rows),
         }
       : {}),
     channel_sessions: {
@@ -70,7 +93,7 @@ function listModel(command: string, value: unknown): Record<string, ToonValue> {
     ...(sessions.channelSessions.rows.length > 0
       ? {
           channel_session_rows: table(
-            ["channel", "dataDir", "extension", "endpoint"],
+            channelFields,
             sessions.channelSessions.rows,
           ),
         }
@@ -110,21 +133,39 @@ function closeAllModel(
 function familyResultModel(
   command: string,
   value: unknown,
+  options: SuccessOptions,
 ): Record<string, ToonValue> {
-  const group = commandGroupFor(command);
   const result = toResultValue(value);
-  const artifacts = ARTIFACT_SUMMARY_GROUP_IDS.has(group?.id ?? "")
+  const artifacts = ARTIFACT_SUMMARY_GROUP_IDS.has(commandGroupFor(command)?.id ?? "")
     ? artifactRows(value)
     : [];
   const counts = arrayCounts(value);
-  return {
+  const base: Record<string, ToonValue> = {
     ...baseModel(command),
     ...(Object.keys(counts).length > 0 ? { counts } : {}),
     ...(artifacts.length > 0
       ? { artifacts: table(["path", "type", "source"], artifacts) }
       : {}),
-    result,
   };
+  const serialized = safeStringify(result);
+  if (options.full || serialized.length <= MAX_RESULT_BYTES) {
+    return { ...base, result };
+  }
+  return {
+    ...base,
+    result: `${serialized.slice(0, MAX_RESULT_BYTES)}…`,
+    result_truncated: true,
+    result_bytes: serialized.length,
+    help: [`playwright-cli-axi ${command} --full`],
+  };
+}
+
+function safeStringify(value: ToonValue): string {
+  try {
+    return value === undefined ? "" : JSON.stringify(value) ?? "";
+  } catch {
+    return "";
+  }
 }
 
 function baseModel(command: string): Record<string, ToonValue> {
