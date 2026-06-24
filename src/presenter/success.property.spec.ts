@@ -28,12 +28,32 @@ function containsKey(value: ToonValue, key: string): boolean {
 
 const upstreamCommandArb = fc.constantFrom(...UPSTREAM_COMMANDS);
 
+/**
+ * JSON values constrained to a depth that won't exceed MAX_RESULT_DEPTH (40).
+ * fast-check's jsonValue() can generate pathological nesting; we constrain
+ * depth to avoid triggering the [max-depth] sentinel in pruneJson.
+ */
+const shallowJsonArb = fc.oneof(
+  fc.boolean(),
+  fc.float({ min: -1e6, max: 1e6, noNaN: true }),
+  fc.string({ maxLength: 20 }),
+  fc.constantFrom(null, false),
+  fc.array(fc.boolean(), { maxLength: 3 }),
+  fc.array(fc.float({ min: -1e6, max: 1e6, noNaN: true }), { maxLength: 3 }),
+  fc.array(fc.string({ maxLength: 20 }), { maxLength: 3 }),
+  fc.dictionary(
+    fc.stringMatching(/^[A-Za-z_][A-Za-z0-9_]{0,8}$/),
+    fc.oneof(fc.boolean(), fc.float({ min: -1e6, max: 1e6, noNaN: true }), fc.string({ maxLength: 20 })),
+    { maxKeys: 4 },
+  ),
+);
+
 const jsonObjectArb = fc.dictionary(
   fc.oneof(
     fc.constant("isError"),
     fc.stringMatching(/^[A-Za-z_][A-Za-z0-9_]{0,12}$/),
   ),
-  fc.jsonValue(),
+  shallowJsonArb,
   { maxKeys: 8 },
 );
 
