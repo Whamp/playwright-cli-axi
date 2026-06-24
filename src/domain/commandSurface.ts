@@ -83,7 +83,11 @@ const FILE_VALUE_FLAGS = new Set(["--filename", "--path"]);
  * regardless of the daemon's spawn cwd (N-9: otherwise a relative positional is
  * resolved daemon-side and orphaned in the artifact cache dir).
  */
-const COMMAND_FILE_POSITIONALS = new Set(["video-start"]);
+const COMMAND_FILE_POSITIONALS = new Set([
+	"video-start",
+	"state-save",
+	"state-load",
+]);
 
 /**
  * F-3 / N-9: resolve relative file paths against the agent's shell cwd so named
@@ -92,14 +96,44 @@ const COMMAND_FILE_POSITIONALS = new Set(["video-start"]);
  * are passed through untouched. Inline `flag=value` forms are handled too, as is
  * the `video-start` positional filename.
  */
-export function resolveRelativeFilePaths(
+
+/** H3-1/H3-3: lexical path canonicalization — collapse `.` and `..` segments so
+ * joined paths are clean and absolute (e.g. `/cwd/./x` → `/cwd/x`,
+ * `/a/b/../../c` → `/c`). Pure string operation; does not touch the filesystem
+ * so it is safe for display/input normalization. Preserves a leading root and
+ * Windows drive/UNC prefixes. */
+export function canonicalizePath(p: string): string {
+	if (p === "") return p;
+	const isWindowsDrive = /^[A-Za-z]:[\\/]/.test(p);
+	const prefix = isWindowsDrive
+		? ""
+		: p.startsWith("//")
+			? "//"
+			: p.startsWith("/")
+				? "/"
+				: "";
+	const drive = isWindowsDrive ? `${p.slice(0, 2)}/` : "";
+	const body = isWindowsDrive ? p.slice(2) : p.slice(prefix.length);
+	const out: string[] = [];
+	for (const seg of body.split(/[\\/]/)) {
+		if (seg === "" || seg === ".") continue;
+		if (seg === "..") {
+			if (out.length) out.pop();
+			continue;
+		}
+		out.push(seg);
+	}
+	return `${drive || prefix}${out.join("/")}`;
+}export function resolveRelativeFilePaths(
 	argv: string[],
 	shellCwd: string,
 ): string[] {
 	const isAbsolute = (p: string) =>
 		p.startsWith("/") || /^[A-Za-z]:[\\/]/.test(p) || p.startsWith("\\\\");
+	// H3-1: join against the shell cwd then canonicalize so `./state.json` and
+	// `../x` produce clean absolute paths (`/cwd/state.json`, not `/cwd/./…`).
 	const absolutize = (p: string) =>
-		isAbsolute(p) || p === "" ? p : `${shellCwd}/${p}`;
+		isAbsolute(p) || p === "" ? p : canonicalizePath(`${shellCwd}/${p}`);
 	const result: string[] = [];
 	const cmdIdx = commandIndex(argv);
 	const cmdName = cmdIdx === -1 ? undefined : argv[cmdIdx];

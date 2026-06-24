@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	argsAfterCommand,
+	canonicalizePath,
 	commandName,
 	hasVersionFlag,
 	isValidWaitState,
@@ -119,7 +120,7 @@ describe("resolveRelativeFilePaths (F-3)", () => {
 				["screenshot", "--filename", "./out.png"],
 				"/repo",
 			),
-		).toEqual(["screenshot", "--filename", "/repo/./out.png"]);
+		).toEqual(["screenshot", "--filename", "/repo/out.png"]);
 	});
 
 	it("absolutizes inline --filename=value form", () => {
@@ -149,7 +150,7 @@ describe("resolveRelativeFilePaths (F-3)", () => {
 	it("absolutizes --path (upload) values too", () => {
 		expect(
 			resolveRelativeFilePaths(["drop", "e5", "--path", "./f.txt"], "/repo"),
-		).toEqual(["drop", "e5", "--path", "/repo/./f.txt"]);
+		).toEqual(["drop", "e5", "--path", "/repo/f.txt"]);
 	});
 
 	it("passes non-file args through unchanged", () => {
@@ -164,7 +165,7 @@ describe("resolveRelativeFilePaths (F-3)", () => {
 	it("N-9: absolutizes the video-start positional filename against the shell cwd", () => {
 		expect(
 			resolveRelativeFilePaths(["video-start", "./out.webm"], "/repo"),
-		).toEqual(["video-start", "/repo/./out.webm"]);
+		).toEqual(["video-start", "/repo/out.webm"]);
 	});
 
 	it("N-9: absolutizes the video-start positional filename with inline --size=value", () => {
@@ -173,7 +174,7 @@ describe("resolveRelativeFilePaths (F-3)", () => {
 				["video-start", "--size=800x600", "./out.webm"],
 				"/repo",
 			),
-		).toEqual(["video-start", "--size=800x600", "/repo/./out.webm"]);
+		).toEqual(["video-start", "--size=800x600", "/repo/out.webm"]);
 	});
 
 	it("N-9: absolutizes the video-start positional filename wherever it appears", () => {
@@ -182,7 +183,7 @@ describe("resolveRelativeFilePaths (F-3)", () => {
 				["video-start", "./out.webm", "--size", "800x600"],
 				"/repo",
 			),
-		).toEqual(["video-start", "/repo/./out.webm", "--size", "800x600"]);
+		).toEqual(["video-start", "/repo/out.webm", "--size", "800x600"]);
 	});
 
 	it("N-9: leaves an absolute video-start filename untouched", () => {
@@ -196,6 +197,50 @@ describe("resolveRelativeFilePaths (F-3)", () => {
 			"click",
 			"e16",
 		]);
+	});
+
+	// H3-1: state-save/state-load positional filenames are named storage files and
+	// must be absolutized against the shell cwd, exactly like video-start (N-9),
+	// otherwise the daemon's spawn cwd orphans them in the artifact cache dir.
+	it("H3-1: absolutizes the state-save positional filename against the shell cwd", () => {
+		expect(
+			resolveRelativeFilePaths(["state-save", "./state.json"], "/repo"),
+		).toEqual(["state-save", "/repo/state.json"]);
+	});
+
+	it("H3-1: absolutizes the state-load positional filename against the shell cwd", () => {
+		expect(
+			resolveRelativeFilePaths(["state-load", "./state.json"], "/repo"),
+		).toEqual(["state-load", "/repo/state.json"]);
+	});
+
+	it("H3-1: leaves an absolute state-save filename untouched", () => {
+		expect(
+			resolveRelativeFilePaths(["state-save", "/abs/state.json"], "/repo"),
+		).toEqual(["state-save", "/abs/state.json"]);
+	});
+});
+
+describe("canonicalizePath (H3-1/H3-3)", () => {
+	it("collapses a leading ./ segment", () => {
+		expect(canonicalizePath("/repo/./state.json")).toBe("/repo/state.json");
+	});
+
+	it("resolves parent .. segments against the prefix", () => {
+		expect(canonicalizePath("/a/b/../../c")).toBe("/c");
+		expect(
+			canonicalizePath("/cache/playwright-cli-axi/../../repo/state.json"),
+		).toBe("/repo/state.json");
+	});
+
+	it("preserves the root and normalizes Windows drive paths to forward slashes", () => {
+		expect(canonicalizePath("/")).toBe("/");
+		// Windows drive paths keep the drive letter; separators normalize to '/'.
+		expect(canonicalizePath("C:\\repo\\.\\x")).toBe("C:/repo/x");
+	});
+
+	it("returns the empty string unchanged", () => {
+		expect(canonicalizePath("")).toBe("");
 	});
 });
 

@@ -3,6 +3,12 @@ import { describe, expect, it } from "vitest";
 import { commandSuccessModel } from "./success.js";
 import { toToon } from "./toon.js";
 
+const json = (value: unknown) => ({
+	kind: "json" as const,
+	value,
+	isError: false,
+});
+
 describe("commandSuccessModel", () => {
 	it("should format list results with explicit empty state", () => {
 		// Arrange
@@ -476,12 +482,6 @@ describe("commandSuccessModel navigation flatten (P-1) and snapshot render (P-2)
 });
 
 describe("commandSuccessModel eval/run-code flatten (C-2)", () => {
-	const json = (value: unknown) => ({
-		kind: "json" as const,
-		value,
-		isError: false,
-	});
-
 	it("C-2: lifts a scalar eval return to a single top-level result (no double result.result)", () => {
 		// upstream JSON-encodes the eval return value into { result: "<json>" }.
 		const model = commandSuccessModel("eval", json({ result: "42" }));
@@ -521,5 +521,137 @@ describe("commandSuccessModel eval/run-code flatten (C-2)", () => {
 	it("C-2: falls back to a plain result when the payload has no result key", () => {
 		const model = commandSuccessModel("eval", json({ ok: true }));
 		expect(model.result).toEqual({ ok: true });
+	});
+});
+
+describe("commandSuccessModel family flatten (H3-2)", () => {
+	// H3-2: upstream wraps storage/network/screenshot payloads as
+	// `{ result: <value> }`; family read commands must lift the inner value to
+	// the top level instead of double-nesting as `result: result: <value>`.
+	it("H3-2: flattens a single-result storage payload (cookie-get)", () => {
+		const model = commandSuccessModel(
+			"cookie-get",
+			json({ result: "test_cookie=hello (domain: example.com)" }),
+		);
+		expect(model.result).toBe("test_cookie=hello (domain: example.com)");
+	});
+
+	it("H3-2: flattens a single-result network payload (requests)", () => {
+		const model = commandSuccessModel(
+			"requests",
+			json({ result: "1. [GET] https://example.com/ => [200]" }),
+		);
+		expect(model.result).toBe("1. [GET] https://example.com/ => [200]");
+	});
+
+	it("H3-2: does NOT JSON-parse the lifted display string (unlike eval)", () => {
+		// Storage values are literal display strings, so a numeric-looking value
+		// stays a string rather than being JSON.parsed back to a number.
+		const model = commandSuccessModel(
+			"localstorage-get",
+			json({ result: "k=42" }),
+		);
+		expect(model.result).toBe("k=42");
+		expect(model.result).not.toBe(42);
+	});
+
+	it("H3-2: leaves a multi-key payload nested (artifact enrichment preserved)", () => {
+		const model = commandSuccessModel(
+			"config-print",
+			json({ configFile: "./playwright.config.json" }),
+		);
+		expect(model.result).toEqual({ configFile: "./playwright.config.json" });
+	});
+});
+
+describe("commandSuccessModel artifact path absolutization (H3-3)", () => {
+	it("H3-3: resolves a relative screenshot link against the artifact base", () => {
+		const model = commandSuccessModel(
+			"screenshot",
+			json({ result: "- [Screenshot of viewport](shot.png)" }),
+			{ artifactBase: "/cache/playwright-cli-axi" },
+		);
+		expect(model.result).toBe(
+			"- [Screenshot of viewport](/cache/playwright-cli-axi/shot.png)",
+		);
+	});
+
+	it("H3-3: canonicalizes parent-segment relative paths (../../)", () => {
+		const model = commandSuccessModel(
+			"state-save",
+			json({ result: "- [Storage state](../../repo/state.json)" }),
+			{ artifactBase: "/cache/playwright-cli-axi" },
+		);
+		expect(model.result).toBe(
+			"- [Storage state](/repo/state.json)",
+		);
+	});
+
+	it("H3-3: leaves an already-absolute link target untouched", () => {
+		const model = commandSuccessModel(
+			"screenshot",
+			json({ result: "- [Screenshot](/abs/shot.png)" }),
+			{ artifactBase: "/cache" },
+		);
+		expect(model.result).toBe("- [Screenshot](/abs/shot.png)");
+	});
+
+	it("H3-3: leaves a non-link network string untouched", () => {
+		const model = commandSuccessModel(
+			"requests",
+			json({ result: "1. [GET] https://example.com/ => [200]" }),
+			{ artifactBase: "/cache" },
+		);
+		expect(model.result).toBe("1. [GET] https://example.com/ => [200]");
+	});
+});
+
+describe("commandSuccessModel storage empty states (H3-4)", () => {
+	it("H3-4: attaches found:false to an empty localstorage-list", () => {
+		const model = commandSuccessModel(
+			"localstorage-list",
+			json({ result: "No localStorage items found" }),
+		);
+		expect(model.found).toBe(false);
+	});
+
+	it("H3-4: attaches found:false to an empty cookie-list", () => {
+		const model = commandSuccessModel(
+			"cookie-list",
+			json({ result: "No cookies found" }),
+		);
+		expect(model.found).toBe(false);
+	});
+
+	it("H3-4: attaches found:false to a missing cookie-get", () => {
+		const model = commandSuccessModel(
+			"cookie-get",
+			json({ result: "Cookie 'nope' not found" }),
+		);
+		expect(model.found).toBe(false);
+	});
+
+	it("H3-4: attaches found:false to a missing localstorage-get", () => {
+		const model = commandSuccessModel(
+			"localstorage-get",
+			json({ result: "localStorage key 'nope' not found" }),
+		);
+		expect(model.found).toBe(false);
+	});
+
+	it("H3-4: does not attach found:false when storage has items", () => {
+		const model = commandSuccessModel(
+			"cookie-list",
+			json({ result: "a=1 (domain: example.com)" }),
+		);
+		expect(model.found).toBeUndefined();
+	});
+
+	it("H3-4: does not attach found:false to non-storage commands", () => {
+		const model = commandSuccessModel(
+			"requests",
+			json({ result: "No requests captured" }),
+		);
+		expect(model.found).toBeUndefined();
 	});
 });

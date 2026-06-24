@@ -571,3 +571,182 @@ classroom-connect.app and C-6 on a real form.
 No regressions: prior N-1/N-2/N-8/N-9 and P-1/P-2 fixes and whole-surface/
 AXI-alignment behavior remain green and were re-confirmed during the live
 re-dogfood (wait/--wait succeed, video-start guards, snapshot readable).
+
+---
+
+# Dogfood #3 — High-severity gaps (Storage, Network, Setup/Context)
+
+Driven live against a real Chromium browser (`PLAYWRIGHT_MCP_EXECUTABLE_PATH`)
+on example.com from an isolated temp cwd. Every command in the three never-run
+high-severity groups was exercised with its actual output observed.
+
+## Storage group (17 commands) — all driven live
+
+Exercised: `cookie-set/get/delete/clear/list`, `localstorage-set/get/delete/
+clear/list`, `sessionstorage-set/get/delete/clear/list`, `state-save`,
+`state-load`. Functionally the round-trips work (set→get→delete→empty all
+behave), but two ship-blockers surfaced.
+
+## Network group (6 commands) — all driven live
+
+Exercised: `requests` (+`--static`, `--filter`), `request <i>`, `route`
+(+`--status/--body/--content-type`), `route-list`, `unroute`,
+`network-state-set offline|online`. Functionally sound: a mocked route was
+served (`fetch('/api/users')` returned the mocked body) and offline mode
+broke `fetch` with `TypeError: Failed to fetch`. Shares the H3-2 nesting
+finding below.
+
+## Setup/Context session hook (AXI principle 7) — driven live
+
+Exercised in an isolated temp HOME (no real config clobbered): `setup`
+(user + project scope), `context`, hook firing, idempotency (3 consecutive
+runs), and merge-with-existing-hooks (pre-seeded mainline hook + user
+permissions/theme/model). **No findings.** The hook installs into both Claude
+Code (`settings.json`) and Codex (`hooks.json` + `config.toml`), fires the
+token-budgeted context slice, is idempotent (`action: noop`, still 1 entry
+after 3 runs), and merges without clobbering pre-existing hooks or user
+config. This principle-7 surface is solid.
+
+## Findings
+
+### H3-1 🔴 CRITICAL — `state-save`/`state-load` relative filename orphaned in daemon cache cwd
+
+- **what-tried:** `state-save ./state.json` then `state-load ./state.json`
+  from the shell cwd.
+- **what-happened:** `state-save ./state.json` returned `result: "- [Storage
+  state](./state.json)"` (success) but NO file appeared in the shell cwd; it
+  was written to `/tmp/playwright-cli-axi-cache/playwright-cli-axi/state.json`
+  (the daemon spawn cwd). `state-load ./state.json` then failed with
+  `ENOENT ... '/tmp/playwright-cli-axi-cache/playwright-cli-axi/state.json'`
+  and the error message leaks the internal cache path. Absolute paths work
+  correctly.
+- **why-it-hurts:** Identical bug class to N-9 (video-start positional
+  filename). The single most damaging failure mode for a state-reuse flow:
+  an agent saves session state, is told it succeeded, and the file is
+  unreachable on reload. Storage-state reuse across close/open is impossible
+  with relative paths.
+- **AXI-principle-violated:** Definitive findability / no silent failure.
+- **suggested-fix:** Absolutize the `state-save`/`state-load` positional
+  filename against the shell cwd at the `resolveRelativeFilePaths` runner
+  chokepoint (same mechanism as N-9's `COMMAND_FILE_POSITIONALS`).
+
+### H3-2 🔴 HIGH — double-nested `result: result: "…"` across all family read commands
+
+- **what-tried:** `cookie-get`, `cookie-list`, `localstorage-get/list`,
+  `sessionstorage-get/list`, `state-save`, `state-load`, `requests`,
+  `request <i>`, `route`, `route-list`, `unroute`, `network-state-set`,
+  `screenshot`, `pdf`.
+- **what-happened:** Every one returns `result:\n  result: "<value>"`
+  (double-nested). e.g. `cookie-get test_cookie` →
+  `result: result: "test_cookie=hello123 (…)"`; `requests` →
+  `result: result: "1. [GET] …"`.
+- **why-it-hurts:** Identical bug class to C-2 (eval), but C-2's
+  `flatResultModel` only covers `eval`/`run-code`. All other family commands
+  route through `familyResultModel`, which nests the whole upstream
+  `{ result: X }` payload under a second `result`. An agent must dig two
+  levels deep to read any storage/network value.
+- **AXI-principle-violated:** Content-first / shallow result depth.
+- **suggested-fix:** In `familyResultModel`, lift a single-`result`-key
+  upstream payload to the top level (generalize the C-2 flatten to all family
+  read commands), WITHOUT JSON-parsing (storage/network values are literal
+  display strings, not JSON-encoded like eval).
+
+### H3-3 🟠 HIGH — artifact/storage file paths displayed relative to daemon cache cwd (un-findable)
+
+- **what-tried:** `screenshot --filename ./shot.png`, `screenshot` (auto),
+  `pdf --filename ./out.pdf`, `state-save <abs>.json`.
+- **what-happened:** Returned paths are relative to the daemon spawn cwd, not
+  the shell cwd or absolute: `--filename ./shot.png` →
+  `../../tmp…/shot.png`; auto `screenshot` →
+  `.playwright-cli/page-2026…png` (which lives in the cache dir, invisible
+  from the shell cwd). Navigation snapshots ARE absolutized via
+  `resolveSnapshot`, but screenshot/pdf/state-save go through
+  `familyResultModel` and get no path resolution.
+- **why-it-hurts:** An agent cannot locate the artifact it just created
+  without knowing the cache dir layout — the auto-screenshot path
+  `.playwright-cli/page-*.png` resolves nowhere from the shell cwd.
+  Contradicts the documented "Absolute snapshot paths" improvement.
+- **AXI-principle-violated:** Definitive findability / pre-computed paths.
+- **suggested-fix:** Absolutize relative paths inside flattened artifact/
+  storage result strings against the known artifact base (daemon cwd), reusing
+  the existing `artifactBase` plumbing.
+
+### H3-4 🟡 LOW — storage empty/not-found states are display strings, not definitive empty states
+
+- **what-tried:** `localstorage-list` after delete; `cookie-get` after delete.
+- **what-happened:** Returns `result: "No localStorage items found"` /
+  `result: "Cookie 'x' not found"` — a human string, not a machine-readable
+  empty state (no `count: 0` / `items: []`).
+- **why-it-hurts:** An agent must string-match "No … found" to detect empty;
+  cannot reliably assert emptiness.
+- **AXI-principle-violated:** Principle 5 (definitive empty states).
+- **suggested-fix:** Add a definitive `count: 0` / `items: []` (or `found:
+  false`) structure for the empty/not-found storage read paths.
+
+### H3-5 ℹ️ INFO (known) — `--raw` flag has no user-visible effect
+
+- **what-tried:** `--raw cookie-list`.
+- **what-happened:** Produced identical TOON output to the non-`--raw` run.
+  `--raw` is forwarded to upstream but the wrapper still re-parses upstream
+  output into TOON.
+- **why-it-hurts:** Previously documented open gap; resurfaces during storage
+  dogfood. Low severity but misleading flag.
+- **suggested-fix:** Either strip `--raw` (declare TOON the only output) or
+  genuinely honor it (pass through raw upstream output). Out of scope unless
+  escalated.
+
+## Positives
+
+- **GOOD-H3-1:** Every storage round-trip is functionally correct
+  (set→get→delete→empty→clear) once paths are absolute.
+- **GOOD-H3-2:** Network mocking and offline toggling work end-to-end
+  against a real page (verified via `eval fetch`).
+- **GOOD-H3-3:** The setup/context session hook (principle 7) is solid —
+  installs, fires, idempotent, and merges safely with pre-existing hooks
+  including mainline. No findings.
+- **GOOD-H3-4:** `state-save`/`state-load` with absolute paths correctly
+  persists and restores cookies + localStorage across the round-trip.
+
+## Dogfood #3 — Resolution
+
+All high-severity-gap findings resolved at the root cause and verified live
+against a real Chromium browser on example.com from an isolated temp cwd.
+
+- **H3-1** ✓ `state-save`/`state-load` relative filenames now absolutize against
+  the shell cwd via `COMMAND_FILE_POSITIONALS` (same mechanism as N-9).
+  `state-save ./state.json` writes to `<shellcwd>/state.json` and round-trips
+  through `state-load ./state.json` (cookies + localStorage restored). No more
+  cache-dir orphaning or leaked cache path in the error.
+- **H3-2** ✓ `familyResultModel` now lifts a single-`result`-key upstream
+  payload to the top level (generalizes C-2 to all family read commands without
+  JSON-parsing). `cookie-get/list`, `localstorage-*`, `sessionstorage-*`,
+  `requests`, `request`, `route`, `route-list`, `unroute`, `network-state-set`,
+  `screenshot`, `pdf`, `state-save`, `state-load` all return a single-level
+  `result` — no more `result: result: <value>`.
+- **H3-3** ✓ Relative paths inside flattened result strings (markdown-link
+  targets) are resolved and canonicalized against the artifact base.
+  `screenshot --filename ./shot.png` → absolute `/cwd/shot.png`; auto
+  `screenshot` → findable absolute cache path. A new `canonicalizePath` helper
+  collapses `.`/`..` so paths are clean.
+- **H3-4** ✓ Storage read commands attach a definitive `found: false` for the
+  known empty/not-found patterns (`No … found`, `Cookie 'x' not found`,
+  `… key 'x' not found`), so emptiness is machine-readable.
+- **H3-5** ℹ️ `--raw` remains a known low-severity open gap (forwarded but
+  wrapper re-parses to TOON); out of scope for this pass, documented above.
+
+**Coverage added:** 21 new tests across `commandSurface.spec.ts`
+(`canonicalizePath`, `state-save`/`state-load` absolutization) and
+`success.spec.ts` (H3-2 family flatten, H3-3 path absolutization, H3-4 empty
+states). Existing N-9 video-start tests updated to the now-canonical paths.
+
+**No regressions:** N-1/N-2/N-8/N-9, P-1/P-2, C-1..C-6, whole-surface and
+AXI-alignment behavior remain green; eval still flattens (C-2), navigation
+snapshots stay absolute (P-1), video-start still guards/absolutizes (N-8/N-9).
+
+**Live verification (re-driven after fixes):**
+- `state-save ./state.json` → file in shell cwd; `state-load ./state.json`
+  restores `cookie-get sc` → `sc=hello` and `localstorage-get ls` → `ls=hello`.
+- `cookie-list`/`localstorage-get`/`requests`/`route-list`/`network-state-set`
+  → single-level `result`.
+- `screenshot --filename ./shot.png` → `- [Screenshot](/cwd/shot.png)`.
+- `localstorage-list`/`cookie-list`/`cookie-get nope` empty → `found: false`.

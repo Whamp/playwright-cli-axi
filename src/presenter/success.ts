@@ -9,6 +9,7 @@ import {
 	SERVER_TABLE_FIELDS,
 } from "../domain/sessions.js";
 import { commandGroupFor } from "../domain/upstreamCommands.js";
+import { canonicalizePath } from "../domain/commandSurface.js";
 import { isObject, type ParsedUpstream } from "../upstream/parse.js";
 import { type ToonValue, table } from "./toon.js";
 
@@ -205,24 +206,64 @@ function recoverScalarValue(inner: unknown): ToonValue {
 	return simpleValue(inner);
 }
 
+/** H3-2: true when `value` is a plain object whose only own enumerable key is
+ * `result` — the shape upstream uses to wrap a family command's single return
+ * value (storage reads, network, screenshot, pdf, state). */
+function isSingleResultObject(value: unknown): value is { result: unknown } {
+	if (!isObject(value)) return false;
+	const keys = Object.keys(value);
+	return keys.length === 1 && keys[0] === "result";
+}
+
+/** H3-2: lift a single-`result`-key upstream payload to its inner value so
+ * family read commands do not double-nest as `result: result: <value>`. The
+ * inner value is returned verbatim (no JSON parsing — these are literal
+ * display strings, unlike eval/run-code). Multi-key or non-`result` payloads
+ * pass through unchanged so artifact/counts enrichment is preserved. */
+function liftSingleResultValue(value: unknown): unknown {
+	return isSingleResultObject(value)
+		? (value as { result: unknown }).result
+		: value;
+}
+
 function familyResultModel(
 	command: string,
 	value: unknown,
 	options: SuccessOptions,
 ): Record<string, ToonValue> {
-	const result = toResultValue(value);
+	// H3-2: upstream wraps family command payloads as `{ result: <value> }`.
+	// When that is the entire payload (single own `result` key), lift the inner
+	// value to the top level so the agent reads it directly instead of digging
+	// through `result: result: "…"` (generalizes C-2 to all family read
+	// commands — storage, network, screenshot, pdf, state). Unlike eval/run-code
+	// these values are literal display strings, so they are NOT JSON-parsed.
+	const lifted = liftSingleResultValue(value);
+	// H3-3: resolve relative paths inside the flattened result string (markdown
+	// link targets like `](path)`) against the artifact base so screenshot/pdf/
+	// state-save file paths are findable from the shell cwd instead of relative
+	// to the daemon's spawn cwd. Already-absolute paths and non-link strings
+	// (network/storage display text) pass through unchanged.
+	const result = absolutizeResultPaths(
+		toResultValue(lifted),
+		options.artifactBase,
+	);
 	const artifacts = ARTIFACT_SUMMARY_GROUP_IDS.has(
 		commandGroupFor(command)?.id ?? "",
 	)
 		? artifactRows(value)
 		: [];
 	const counts = arrayCounts(value);
+	// H3-4: give storage read commands a definitive empty/not-found state so an
+	// agent can assert emptiness without string-matching display text (AXI
+	// principle 5). `found: false` is attached only for the known empty patterns.
+	const foundFalse = storageFoundFalse(command, result);
 	const base: Record<string, ToonValue> = {
 		...baseModel(command),
 		...(Object.keys(counts).length > 0 ? { counts } : {}),
 		...(artifacts.length > 0
 			? { artifacts: table(["path", "type", "source"], artifacts) }
 			: {}),
+		...(foundFalse ? { found: false } : {}),
 	};
 	const serialized = safeStringify(result);
 	const bytes = Buffer.byteLength(serialized, "utf8");
@@ -345,13 +386,55 @@ function resolveSnapshot(
 	return snapshot;
 }
 
+/** H3-4: storage read commands whose empty/not-found state should be surfaced
+ * as a definitive `found: false` field instead of only a display string. */
+const STORAGE_READ_COMMANDS = new Set([
+	"cookie-get",
+	"cookie-list",
+	"localstorage-get",
+	"localstorage-list",
+	"sessionstorage-get",
+	"sessionstorage-list",
+]);
+
+/** H3-4: upstream empty/not-found display strings for storage reads. Matching
+ * one means the read found nothing, so the model attaches `found: false`. */
+const STORAGE_EMPTY_RE =
+	/^(No (localStorage items|sessionStorage items|cookies) found|Cookie '.+' not found|(localStorage|sessionStorage) key '.+' not found)$/;
+
+/** H3-4: return true when a storage read command's result is an empty/not-found
+ * display string, so the model can attach a machine-readable `found: false`. */
+function storageFoundFalse(command: string, result: ToonValue): boolean {
+	if (!STORAGE_READ_COMMANDS.has(command)) return false;
+	return typeof result === "string" && STORAGE_EMPTY_RE.test(result);
+}
+
 function resolveAgainst(path: string, base: string): string {
 	if (path === "") return path;
 	const isAbsolute =
 		path.startsWith("/") ||
 		/^[A-Za-z]:[\\/]/.test(path) ||
 		path.startsWith("\\\\");
-	return isAbsolute ? path : `${base.replace(/\/+$/, "")}/${path}`;
+	return isAbsolute
+		? path
+		: canonicalizePath(`${base.replace(/\/+$/, "")}/${path}`);
+}
+
+/** H3-3: resolve relative markdown-link targets (`](path)`) inside a flattened
+ * family result string against the artifact base. Upstream renders screenshot /
+ * pdf / state-save file paths relative to its spawn cwd, which is invisible
+ * from the agent's shell cwd; this makes them absolute and findable. Strings
+ * without link targets (network/storage display text) and already-absolute
+ * paths pass through unchanged. */
+function absolutizeResultPaths(
+	value: ToonValue,
+	base?: string,
+): ToonValue {
+	if (!base || typeof value !== "string") return value;
+	return value.replace(
+		/\]\(([^)]+)\)/g,
+		(_m, p: string) => `](${resolveAgainst(p, base)})`,
+	);
 }
 
 /**
