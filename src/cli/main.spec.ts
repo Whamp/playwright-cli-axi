@@ -261,6 +261,63 @@ describe("runCli", () => {
     expect(state.recording.requestedSize).toBe("320x240");
   });
 
+  it("strips wrapper-only flags before forwarding video commands to upstream (F2)", async () => {
+    const harness = await createHarness([{ stdout: "Video recording started." }]);
+    const result = await harness.run([
+      "video-start", "--full", "--fields", "id", "./out.webm",
+    ]);
+    expect(result.exitCode).toBe(0);
+    // Wrapper-only flags never reach the (injected) upstream runner from video.
+    expect(harness.upstreamRuns[0]).toEqual(["video-start", "./out.webm"]);
+  });
+
+  it("routes `context` to a compact session-start slice via list --all (O9)", async () => {
+    const harness = await createHarness([{ stdout: '{"browsers":[{"id":1}]}' }]);
+    const result = await harness.run(["context"]);
+    expect(result.exitCode).toBe(0);
+    expect(harness.upstreamRuns).toEqual([["list", "--all"]]);
+    expect(result.stdout).toContain("tool: playwright-cli-axi");
+    expect(result.stdout).toContain("browsers: 1");
+    // Context is a minimal slice, not the full home command matrix.
+    expect(result.stdout).not.toContain("command_groups");
+  });
+
+  it("strips --full/--fields before forwarding generic commands and bounds results (O9)", async () => {
+    const big = { snapshot: "x".repeat(3000) };
+    const harness = await createHarness([{ stdout: JSON.stringify(big) }]);
+    const result = await harness.run(["config-print", "--full", "--fields", "id"]);
+    expect(result.exitCode).toBe(0);
+    // Wrapper flags stripped before the upstream spawn.
+    expect(harness.upstreamRuns[0]).toEqual(["config-print"]);
+    // --full bypasses truncation: the full snapshot is present, no truncation marker.
+    expect(result.stdout).toContain("snapshot:");
+    expect(result.stdout).not.toContain("result_truncated");
+  });
+
+  it("routes `setup` with injected deps and does not touch the real home (O9)", async () => {
+    const stateRoot = await mkdtemp(join(tmpdir(), "playwright-cli-axi-setup-"));
+    const files = new Map<string, string>();
+    const result = await runCli(["setup", "--scope", "project"], {
+      cwd: join(stateRoot, "repo"),
+      executablePath: "/opt/pca",
+      env: { XDG_STATE_HOME: join(stateRoot, "state"), HOME: stateRoot },
+      wrapperVersion: "0.1.0",
+      upstreamVersion: "0.1.14",
+      setupDeps: {
+        which: () => undefined,
+        readFile: (p) => files.get(p),
+        writeFile: (p, c) => { files.set(p, c); },
+        exists: (p) => files.has(p),
+        realpath: (p) => p,
+      },
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("command: setup");
+    expect(result.stdout).toContain("status: ok");
+    // Wrote into the injected map, not the real ~/.claude.
+    expect(Array.from(files.keys()).some((p) => p.includes(".claude"))).toBe(true);
+  });
+
   it("should preserve session flags for video-start while excluding them from validation", async () => {
     // Arrange
     const harness = await createHarness([

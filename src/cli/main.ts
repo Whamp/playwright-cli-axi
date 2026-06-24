@@ -139,15 +139,17 @@ function runSetup(argv: string[], deps: Required<CliDependencies>): CliResult {
 }
 
 function setupModel(scope: HookScope, result: ReturnType<typeof installSessionStartHook>): ToonValue {
+  const skipped = result.installed.filter((entry) => entry.action === "skipped");
   return {
     command: "setup",
-    status: "ok",
+    status: skipped.length > 0 ? "partial" : "ok",
     scope,
     binary: result.binary,
     installed: result.installed.map((entry) => ({
       target: entry.target,
       path: entry.path,
       action: entry.action,
+      ...(entry.error ? { error: entry.error } : {}),
     })),
     next: [
       "Start a new agent session in this directory to see live context",

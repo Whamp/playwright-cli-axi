@@ -92,13 +92,23 @@ describe("commandSuccessModel properties", () => {
   });
 
   it("preserves every hostile JSON key in the generic result model", () => {
+    // Keys that would pollute the source object's prototype (e.g. __proto__)
+    // are excluded: after a JSON round-trip they become own data keys (safe —
+    // JSON.parse uses DefineOwnProperty, no pollution), which would make this
+    // oracle compare against the wrong key set. The property targets hostile
+    // CHARACTER preservation, not prototype semantics.
+    const dataKeyArb = fc
+      .string({ minLength: 1, maxLength: 16 })
+      .filter((k) => k !== "__proto__" && k !== "constructor" && k !== "prototype");
     fc.assert(
       fc.property(
-        fc.dictionary(fc.string({ minLength: 1, maxLength: 16 }), fc.jsonValue(), {
+        fc.dictionary(dataKeyArb, fc.jsonValue(), {
           maxKeys: 6,
         }),
         (value) => {
-          const model = commandSuccessModel("config-print", parsedJson(value)) as {
+          const model = commandSuccessModel("config-print", parsedJson(value), {
+            full: true,
+          }) as {
             command: string;
             status: string;
             result: Record<string, ToonValue>;

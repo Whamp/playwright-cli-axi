@@ -16,7 +16,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:unit": "vitest run src",
-    "test:prop": "vitest run --hideSkippedTests -t properties",
+    "test:prop": "vitest run --hideSkippedTests .property.spec.ts",
     "test:golden": "vitest run src/presenter",
     "generate:skill": "tsx scripts/generate-skill.ts",
     "check:skill": "tsx scripts/check-skill.ts",

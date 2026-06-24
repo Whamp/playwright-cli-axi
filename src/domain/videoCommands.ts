@@ -2,6 +2,7 @@ import type { CliResult } from "../cli/main.js";
 import {
   argsAfterCommand,
   commandName,
+  stripWrapperFlags,
   type VideoCommandName,
 } from "./commandSurface.js";
 import type { VideoStore, VideoSidecarState } from "./videoState.js";
@@ -85,7 +86,7 @@ export async function handleVideoCommand(
     };
   }
 
-  const run = await context.upstream(context.argv);
+  const run = await context.upstream(stripWrapperFlags(context.argv));
   const parsed = parseUpstreamOutput(run.stdout, run.stderr, run.exitCode);
   if (parsed.isError || run.exitCode !== 0)
     return normalizeUpstreamError(context.argv, run, parsed);

@@ -354,4 +354,38 @@ describe("commandSuccessModel --full (AXI principle 3)", () => {
     expect(output).not.toContain("result_truncated");
     expect(output).not.toContain("--full");
   });
+
+  it("reports result_bytes as true UTF-8 bytes (not code units) (F4)", () => {
+    const value = { text: "界".repeat(600) };
+    const parsed = { kind: "json", value, isError: false } as const;
+    const model = commandSuccessModel("config-print", parsed) as Record<string, unknown>;
+    const expectedBytes = Buffer.byteLength(JSON.stringify(value), "utf8");
+    expect(model.result_bytes).toBe(expectedBytes);
+    expect(model.result_truncated).toBe(true);
+  });
+
+  it("does not split a multibyte/surrogate code point at the byte boundary (F4)", () => {
+    const value = { text: "😀".repeat(700) };
+    const parsed = { kind: "json", value, isError: false } as const;
+    const model = commandSuccessModel("config-print", parsed) as Record<string, unknown>;
+    const preview = String(model.result);
+    // The truncated preview must round-trip through UTF-8 without a replacement
+    // char, proving no surrogate pair was split.
+    const roundtripped = Buffer.from(preview, "utf8").toString("utf8");
+    expect(roundtripped.includes("\uFFFD")).toBe(false);
+    expect(model.result_truncated).toBe(true);
+  });
+
+  it("truncates just over the boundary but not exactly at it (F4)", () => {
+    // JSON `{"x":"..."}` => 6 + n + 2 bytes for n ASCII chars.
+    const atBoundary = { x: "a".repeat(1492) };
+    const overBoundary = { x: "a".repeat(1493) };
+    const p1 = { kind: "json", value: atBoundary, isError: false } as const;
+    const p2 = { kind: "json", value: overBoundary, isError: false } as const;
+    const m1 = commandSuccessModel("config-print", p1) as Record<string, unknown>;
+    const m2 = commandSuccessModel("config-print", p2) as Record<string, unknown>;
+    expect(m1.result_truncated).toBeUndefined();
+    expect(m2.result_truncated).toBe(true);
+    expect(m2.result_bytes).toBe(Buffer.byteLength(JSON.stringify(overBoundary), "utf8"));
+  });
 });

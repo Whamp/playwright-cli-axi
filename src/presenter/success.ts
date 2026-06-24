@@ -148,24 +148,46 @@ function familyResultModel(
       : {}),
   };
   const serialized = safeStringify(result);
-  if (options.full || serialized.length <= MAX_RESULT_BYTES) {
+  const bytes = Buffer.byteLength(serialized, "utf8");
+  if (options.full || bytes <= MAX_RESULT_BYTES) {
     return { ...base, result };
   }
   return {
     ...base,
-    result: `${serialized.slice(0, MAX_RESULT_BYTES)}…`,
+    result: `${truncateUtf8(serialized, MAX_RESULT_BYTES)}…`,
     result_truncated: true,
-    result_bytes: serialized.length,
+    result_bytes: bytes,
     help: [`playwright-cli-axi ${command} --full`],
   };
 }
 
+/** Serialize a value defensively; returns "" if JSON.stringify throws. */
 function safeStringify(value: ToonValue): string {
   try {
     return value === undefined ? "" : JSON.stringify(value) ?? "";
   } catch {
     return "";
   }
+}
+
+/**
+ * Truncate a UTF-8 string to at most `maxBytes` without splitting a multibyte
+ * code point (so the result is always valid UTF-8 / no lone surrogates). Bytes
+ * are counted with Buffer.byteLength, matching the `result_bytes` contract.
+ */
+function truncateUtf8(value: string, maxBytes: number): string {
+  const bytes = Buffer.byteLength(value, "utf8");
+  if (bytes <= maxBytes) return value;
+  const buf = Buffer.from(value, "utf8").subarray(0, maxBytes);
+  // Back up to a complete code point. First walk back over trailing continuation
+  // bytes (0x80..0xBF). Then, if the byte that remains is a leading byte
+  // (0xc0-class), its sequence is incomplete (its continuations are beyond the
+  // slice), so exclude it too. The result never splits a multibyte sequence, so
+  // no lone surrogate / replacement char is produced.
+  let cut = maxBytes;
+  while (cut > 0 && (buf[cut - 1]! & 0xc0) === 0x80) cut -= 1;
+  if (cut > 0 && (buf[cut - 1]! & 0xc0) === 0xc0) cut -= 1;
+  return buf.subarray(0, cut).toString("utf8");
 }
 
 function baseModel(command: string): Record<string, ToonValue> {

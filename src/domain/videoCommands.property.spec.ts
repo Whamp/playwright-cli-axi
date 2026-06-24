@@ -232,14 +232,18 @@ describe("videoCommands properties", () => {
 
   it("keeps generated successful command sequences consistent with a simple video-state model", async () => {
     type Step =
-      | { kind: "start"; file: string }
+      | { kind: "start"; file: string; size?: string }
       | { kind: "stop" }
       | { kind: "chapter"; title: string }
       | { kind: "show" }
       | { kind: "hide" };
 
     const stepArb: Arbitrary<Step> = fc.oneof(
-      fc.record({ kind: fc.constant("start"), file: safeArgArb }),
+      fc.record({
+        kind: fc.constant("start"),
+        file: safeArgArb,
+        size: fc.option(videoSizeArb, { nil: undefined }),
+      }),
       fc.constant({ kind: "stop" }),
       fc.record({ kind: fc.constant("chapter"), title: safeArgArb }),
       fc.constant({ kind: "show" }),
@@ -280,10 +284,14 @@ describe("videoCommands properties", () => {
 
           if (step.kind === "start" && model.recording.status === "active") {
             // New video-start contract (AXI principle 6): while active, a
-            // request for the SAME file is an idempotent exit-0 no-op, while a
-            // request for a DIFFERENT file is an exit-2 conflict. Neither calls
-            // upstream nor mutates state.
-            const sameTarget = step.file === model.recording.requestedFile;
+            // request for the SAME target (file AND size) is an idempotent
+            // exit-0 no-op, while a DIFFERENT file or size is an exit-2
+            // conflict. Neither calls upstream nor mutates state.
+            const sameFile = step.file === model.recording.requestedFile;
+            const sameSize =
+              step.size === undefined ||
+              step.size === model.recording.requestedSize;
+            const sameTarget = sameFile && sameSize;
             expect(result.exitCode).toBe(sameTarget ? 0 : 2);
             expect(upstreamCalls).toHaveLength(beforeCalls);
           } else {
@@ -292,6 +300,9 @@ describe("videoCommands properties", () => {
             applyStep(model, step);
           }
 
+          if (step.kind === "start" && model.recording.status !== "active") {
+            model.recording.requestedSize = step.size;
+          }
           const actual = await store.load();
           expect(actual.recording.status).toBe(model.recording.status);
           expect(actual.recording.requestedFile).toBe(
@@ -314,11 +325,16 @@ describe("videoCommands properties", () => {
 function argvForStep(step: {
   kind: string;
   file?: string;
+  size?: string;
   title?: string;
 }): string[] {
   switch (step.kind) {
     case "start":
-      return ["video-start", step.file ?? "out.webm"];
+      return [
+        "video-start",
+        step.file ?? "out.webm",
+        ...(step.size ? ["--size", step.size] : []),
+      ];
     case "stop":
       return ["video-stop"];
     case "chapter":
@@ -334,11 +350,15 @@ function argvForStep(step: {
 
 function applyStep(
   state: VideoSidecarState,
-  step: { kind: string; file?: string; title?: string },
+  step: { kind: string; file?: string; size?: string; title?: string },
 ): void {
   switch (step.kind) {
     case "start":
-      state.recording = { status: "active", requestedFile: step.file };
+      state.recording = {
+        status: "active",
+        requestedFile: step.file,
+        ...(step.size ? { requestedSize: step.size } : {}),
+      };
       state.lastFiles = [];
       break;
     case "stop":

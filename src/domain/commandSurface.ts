@@ -20,7 +20,7 @@ export function commandName(argv: string[]): string | undefined {
 export function commandIndex(argv: string[]): number {
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]!;
-    if (isInlineSessionFlag(arg) || GLOBAL_BOOLEAN_FLAGS.has(arg)) continue;
+    if (isInlineValueFlag(arg) || GLOBAL_BOOLEAN_FLAGS.has(arg)) continue;
     if (GLOBAL_FLAGS_WITH_VALUE.has(arg)) {
       index += 1;
       continue;
@@ -105,11 +105,14 @@ export function parseFieldsFlag(argv: string[]): string[] | undefined {
  * Whether the caller asked for the wrapper version.
  *
  * `--version` is the canonical global flag. `-v` is also honoured, but ONLY
- * when no command resolves, so that a command's own `-v` (e.g. `list -v`)
- * continues to pass through to upstream unchanged.
+ * when no command resolves AND the flag appears before any `--` separator, so
+ * that `-- --version` forwards to upstream and a command's own `-v` (e.g.
+ * `list -v`) continues to pass through to upstream unchanged.
  */
 export function hasVersionFlag(argv: string[]): boolean {
-  const hasFlag = argv.includes('--version') || argv.includes('-v');
+  const dashDash = argv.indexOf('--');
+  const scope = dashDash === -1 ? argv : argv.slice(0, dashDash);
+  const hasFlag = scope.includes('--version') || scope.includes('-v');
   return hasFlag && commandName(argv) === undefined;
 }
 
@@ -140,7 +143,7 @@ function stripGlobalFlags(args: string[]): string[] {
   const result: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]!;
-    if (isInlineSessionFlag(arg) || GLOBAL_BOOLEAN_FLAGS.has(arg)) continue;
+    if (isInlineValueFlag(arg) || GLOBAL_BOOLEAN_FLAGS.has(arg)) continue;
     if (GLOBAL_FLAGS_WITH_VALUE.has(arg)) {
       index += 1;
       continue;
@@ -150,6 +153,11 @@ function stripGlobalFlags(args: string[]): string[] {
   return result;
 }
 
-function isInlineSessionFlag(arg: string): boolean {
-  return arg.startsWith('-s=') || arg.startsWith('--session=');
+/** Inline `name=value` forms for value-bearing global flags (space and equals). */
+function isInlineValueFlag(arg: string): boolean {
+  return (
+    arg.startsWith('-s=') ||
+    arg.startsWith('--session=') ||
+    arg.startsWith('--fields=')
+  );
 }

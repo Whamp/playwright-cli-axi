@@ -167,6 +167,13 @@ is idempotent, repairs stale executable paths after relocation, uses a
 PATH-verified binary name when available (falling back to an absolute path),
 and composes with other hooks such as mainline without clobbering them.
 
+Setup is safe by construction: the executable path is shell-quoted and passed
+as an argument (never interpolated into a shell script body, so a path
+cannot inject commands), existing settings are written atomically with a
+`.bak` backup, writes that would escape the target directory via a symlink are
+refused, and a corrupt or non-object settings file is never overwritten (the
+target is reported `skipped` with an error instead).
+
 ```sh
 playwright-cli-axi setup                    # install into ~/.claude and ~/.codex
 playwright-cli-axi setup --scope project     # install into .claude and .codex in cwd
