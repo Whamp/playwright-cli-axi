@@ -47,8 +47,8 @@ You can get live browser and video context at session start in two complementary
 
 - `npx -y playwright-cli-axi setup` — Install/repair the SessionStart hook so agent sessions start with live browser and video context.
 - `npx -y playwright-cli-axi context` — Print the token-budgeted session-start context slice (invoked by the hook).
-- `npx -y playwright-cli-axi scroll` — Scroll the page: --to <ref> (scrollIntoView), --top, --bottom, or --by <px>.
-- `npx -y playwright-cli-axi wait` — Wait for a page load state (load|domcontentloaded|networkidle) without manual sleep.
+- `npx -y playwright-cli-axi scroll` — Scroll the page: --to <ref> (scrollIntoView), --top, --bottom, or --by <px> (only one action at a time).
+- `npx -y playwright-cli-axi wait` — Wait for a page load state (load|domcontentloaded|networkidle) without manual sleep. When used via the `--wait` flag on navigation commands, a wait failure surfaces as a `wait_warning` field on the successful result instead of masking the navigation.
 
 ## Video workflow
 

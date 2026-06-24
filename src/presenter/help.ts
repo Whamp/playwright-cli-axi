@@ -179,7 +179,7 @@ const WRAPPER_HELP: Record<string, HelpDefinition> = {
   scroll: {
     command: "scroll",
     summary:
-      "Scroll the page without hand-writing JS: to a snapshot ref, to top/bottom, or by pixels.",
+      "Scroll the page without hand-writing JS: to a snapshot ref, to top/bottom, or by pixels. Only one scroll action can be specified at a time.",
     usage:
       "playwright-cli-axi scroll [--to <ref> | --top | --bottom | --by <px>]",
     args: [],
@@ -218,7 +218,7 @@ const WRAPPER_HELP: Record<string, HelpDefinition> = {
   wait: {
     command: "wait",
     summary:
-      "Wait for a Playwright page load state so post-navigation state is trustworthy without manual sleep.",
+      "Wait for a Playwright page load state so post-navigation state is trustworthy without manual sleep. When used via --wait on navigation commands, wait failures surface as a wait_warning field instead of masking the navigation result.",
     usage:
       "playwright-cli-axi wait [--state load|domcontentloaded|networkidle] [--timeout <ms>]",
     args: [],

@@ -167,10 +167,10 @@ tests until they are assigned to a wrapper command family.
 - `setup` — Install/repair the SessionStart hook for Claude Code and Codex
 - `context` — Print the token-budgeted session-start context slice (invoked by the hook)
 - `help <command>` — Alias for `<command> --help`; show help for specific commands
-- `scroll` — Scroll the page without hand-writing JS: `--to <ref>` (scrollIntoView a snapshot ref), `--top`, `--bottom`, or `--by <px>`
+- `scroll` — Scroll the page without hand-writing JS: `--to <ref>` (scrollIntoView a snapshot ref), `--top`, `--bottom`, or `--by <px>` (only one action at a time)
 - `wait` — Wait for a Playwright load state (`load|domcontentloaded|networkidle`) so post-navigation state is trustworthy without manual `sleep`
 
-Navigation commands also accept a `--wait <state>` flag (e.g. `click e5 --wait networkidle`) that runs a bounded wait after the action.
+Navigation commands also accept a `--wait <state>` flag (e.g. `click e5 --wait networkidle`) that runs a bounded wait after the action. If the wait fails after a successful navigation, the primary result is returned with a `wait_warning` field instead of masking the success.
 
 ## Ambient context (session hook)
 
