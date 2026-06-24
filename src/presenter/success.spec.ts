@@ -602,6 +602,15 @@ describe("commandSuccessModel artifact path absolutization (H3-3)", () => {
     );
     expect(model.result).toBe("1. [GET] https://example.com/ => [200]");
   });
+
+  it("H3-3: resolves a link target whose path contains parentheses", () => {
+    const model = commandSuccessModel(
+      "screenshot",
+      json({ result: "- [Screenshot](my (report).png)" }),
+      { artifactBase: "/cwd" },
+    );
+    expect(model.result).toBe("- [Screenshot](/cwd/my (report).png)");
+  });
 });
 
 describe("commandSuccessModel storage empty states (H3-4)", () => {
