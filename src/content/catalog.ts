@@ -33,8 +33,8 @@ export const CATALOG = {
     context:
       "Print the token-budgeted session-start context slice (invoked by the hook).",
     scroll:
-      "Scroll the page: --to <ref> (scrollIntoView), --top, --bottom, or --by <px>.",
-    wait: "Wait for a page load state (load|domcontentloaded|networkidle) without manual sleep.",
+      "Scroll the page: --to <ref> (scrollIntoView), --top, --bottom, or --by <px> (only one action at a time).",
+    wait: "Wait for a page load state (load|domcontentloaded|networkidle) without manual sleep. When used via the --wait flag on navigation commands, a wait failure surfaces as a wait_warning field on the successful result instead of masking the navigation.",
   } as Record<string, string>,
 };
 
