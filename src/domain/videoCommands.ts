@@ -1,16 +1,18 @@
 import type { CliResult } from "../cli/main.js";
+import { errorToStdout } from "../presenter/errors.js";
+import { type ToonValue, toToon } from "../presenter/toon.js";
+import { normalizeUpstreamError } from "../upstream/errors.js";
+import { isObject, parseUpstreamOutput } from "../upstream/parse.js";
+import type { UpstreamRunner } from "../upstream/runner.js";
 import {
   argsAfterCommand,
   commandName,
   stripWrapperFlags,
   type VideoCommandName,
 } from "./commandSurface.js";
-import type { VideoStore, VideoSidecarState } from "./videoState.js";
-import { parseUpstreamOutput, isObject } from "../upstream/parse.js";
-import type { UpstreamRunner } from "../upstream/runner.js";
-import { errorToStdout } from "../presenter/errors.js";
-import { toToon, type ToonValue } from "../presenter/toon.js";
-import { normalizeUpstreamError } from "../upstream/errors.js";
+import { normalizeSessions } from "./sessions.js";
+import type { VideoSidecarState, VideoStore } from "./videoState.js";
+import { chapterManifest } from "./videoState.js";
 
 const POSITIONS = [
   "top-left",
@@ -22,11 +24,21 @@ const POSITIONS = [
 ] as const;
 const CURSORS = ["pointer", "none"] as const;
 
+export type PageOpenState = "open" | "closed" | "unknown";
+
 export interface VideoCommandContext {
   argv: string[];
   upstream: UpstreamRunner;
   store: VideoStore;
   now: () => Date;
+  /**
+   * N-8: whether a browser page is currently open, so `video-start` can guard
+   * against starting a recording that captures nothing. Injectable so tests
+   * can fix page-open state without routing the guard's `list` probe through
+   * the command-under-test upstream queue; production leaves it unset so the
+   * default list-based check runs.
+   */
+  pageOpenChecker?: (upstream: UpstreamRunner) => Promise<PageOpenState>;
 }
 
 export async function handleVideoCommand(
@@ -34,6 +46,16 @@ export async function handleVideoCommand(
 ): Promise<CliResult> {
   const command = commandName(context.argv) as VideoCommandName;
   const state = await context.store.load();
+
+  /*
+   * F-4: `video-chapters` and `video-status` are wrapper-only read commands.
+   * They never call upstream — they project the sidecar state (chapter
+   * manifest with offsets, recording status) so an agent can recover a
+   * recording's chapter map without parsing the sidecar JSON by hand.
+   */
+  if (command === "video-chapters") return videoChaptersResult(command, state);
+  if (command === "video-status") return videoStatusResult(command, state);
+
   const validation = validateVideoCommand(
     command,
     argsAfterCommand(context.argv),
@@ -84,6 +106,30 @@ export async function handleVideoCommand(
         help: ["playwright-cli-axi video-stop"],
       }),
     };
+  }
+
+  /*
+   * N-8: starting a recording with no open browser page captures nothing —
+   * upstream only reports "no videos were recorded" at stop time, far too
+   * late. Guard at start time so the agent gets immediate, actionable guidance
+   * to open a page first. Only a definitive "closed" blocks; an inconclusive
+   * "unknown" (e.g. a flaky list call) fails open so it never blocks a start.
+   */
+  if (command === "video-start" && state.recording.status !== "active") {
+    const checker = context.pageOpenChecker ?? hasOpenBrowserPage;
+    const pageState = await checker(context.upstream);
+    if (pageState === "closed") {
+      return {
+        exitCode: 2,
+        stdout: errorToStdout({
+          kind: "usage",
+          message:
+            "video-start requires an open browser page to record from; open one first",
+          command: context.argv.join(" "),
+          help: ["playwright-cli-axi open <url>", "playwright-cli-axi list"],
+        }),
+      };
+    }
   }
 
   const run = await context.upstream(stripWrapperFlags(context.argv));
@@ -232,7 +278,31 @@ export function validateVideoCommand(
         );
       return { ok: true, options: { positionals, flags } };
     }
+    case "video-chapters":
+    case "video-status": {
+      // Intercepted before validation in handleVideoCommand; these cases keep
+      // the switch exhaustive so VideoCommandName stays a closed union.
+      const unknown = unknownFlags(flags, []);
+      if (unknown)
+        return usage(`${unknown} is not supported by ${command}`, command);
+      if (positionals.length > 0)
+        return usage(
+          `${command} does not accept positional arguments`,
+          command,
+        );
+      return { ok: true, options: { positionals, flags } };
+    }
+    default:
+      return exhaustiveVideoCommand(command);
   }
+}
+
+function exhaustiveVideoCommand(command: never): Validation {
+  return {
+    ok: false,
+    message: `${command} is not a recognized video command`,
+    help: ["playwright-cli-axi --help"],
+  };
 }
 
 function mutateStateAfterSuccess(
@@ -280,6 +350,10 @@ function mutateStateAfterSuccess(
     case "video-hide-actions":
       next.actionsOverlay = { status: "disabled", updatedAt: at };
       return next;
+    // Read-only commands are intercepted before this runs; no state change.
+    case "video-chapters":
+    case "video-status":
+      return next;
   }
 }
 
@@ -325,6 +399,9 @@ function videoSuccessModel(
         ? { other_artifact_files: artifacts.otherArtifacts }
         : {}),
       ...(artifacts.all.length > 0 ? { last_files: artifacts.all } : {}),
+      ...(state.chapters.length > 0
+        ? { chapters: chapterManifest(state) }
+        : {}),
     };
   }
   if (command === "video-chapter") {
@@ -405,6 +482,76 @@ function describeTarget(
 }
 
 /**
+ * F-4: read commands that project the sidecar so agents never need to parse
+ * the sidecar JSON directly. `video-chapters` returns the chapter manifest
+ * with seek offsets; `video-status` returns the full recording summary.
+ */
+function videoChaptersResult(
+  command: VideoCommandName,
+  state: VideoSidecarState,
+): CliResult {
+  const manifest = chapterManifest(state);
+  return {
+    exitCode: 0,
+    stdout: toToon({
+      command,
+      status: "ok",
+      recording: recordingSummary(state),
+      chapters: {
+        count: manifest.length,
+        ...(manifest.length === 0
+          ? { empty: "no chapters recorded; run video-chapter <title>" }
+          : {}),
+      },
+      ...(manifest.length > 0 ? { chapter_rows: manifest } : {}),
+    } as ToonValue),
+  };
+}
+
+function videoStatusResult(
+  command: VideoCommandName,
+  state: VideoSidecarState,
+): CliResult {
+  const manifest = chapterManifest(state);
+  return {
+    exitCode: 0,
+    stdout: toToon({
+      command,
+      status: "ok",
+      recording: recordingSummary(state),
+      files: {
+        count: state.lastFiles.length,
+        ...(state.lastFiles.length === 0
+          ? { empty: "no video files recorded yet" }
+          : {}),
+      },
+      ...(state.lastFiles.length > 0 ? { last_files: state.lastFiles } : {}),
+      chapters: {
+        count: manifest.length,
+        ...(manifest.length === 0 ? { empty: "no chapters recorded" } : {}),
+      },
+      ...(manifest.length > 0 ? { chapter_rows: manifest } : {}),
+      actions: state.actionsOverlay.status,
+      ...(state.warnings.length > 0
+        ? { warnings: state.warnings.slice(-3) }
+        : {}),
+    } as ToonValue),
+  };
+}
+
+function recordingSummary(state: VideoSidecarState): ToonValue {
+  const r = state.recording;
+  return {
+    status: r.status,
+    ...(r.requestedFile ? { requestedFile: r.requestedFile } : {}),
+    ...(r.requestedSize ? { requestedSize: r.requestedSize } : {}),
+    ...(r.startedAt ? { startedAt: r.startedAt } : {}),
+    ...(r.stoppedAt ? { stoppedAt: r.stoppedAt } : {}),
+    source: "sidecar",
+  };
+}
+
+/**
  * Exit-0 structured no-op for an idempotent `video-start` (active recording
  * matches the request, or no new target was requested). The active recording
  * is preserved untouched and echoed back.
@@ -431,6 +578,26 @@ function videoStartNoOp(
   };
 }
 
+/**
+ * N-8: whether a browser page is currently open, so `video-start` can guard
+ * against starting a recording that will capture nothing. Queries upstream
+ * `list`; returns "closed" only when no open browser is reported, "unknown"
+ * when the check itself fails (so callers can fail open without blocking).
+ */
+async function hasOpenBrowserPage(
+  upstream: UpstreamRunner,
+): Promise<"open" | "closed" | "unknown"> {
+  try {
+    const run = await upstream(["list", "--json"]);
+    const parsed = parseUpstreamOutput(run.stdout, run.stderr, run.exitCode);
+    if (parsed.isError || run.exitCode !== 0) return "unknown";
+    const value = parsed.kind === "json" ? parsed.value : undefined;
+    return normalizeSessions(value).browsers.count > 0 ? "open" : "closed";
+  } catch {
+    return "unknown";
+  }
+}
+
 export function extractVideoLinks(
   parsed: ReturnType<typeof parseUpstreamOutput>,
 ): string[] {
@@ -452,7 +619,9 @@ export function extractVideoArtifacts(
         ...stringArray(parsed.value.files),
         ...stringArray(parsed.value.lastFiles),
       ]);
-      const otherArtifacts = [...filesAndLastFiles].filter((path) => !videos.includes(path));
+      const otherArtifacts = [...filesAndLastFiles].filter(
+        (path) => !videos.includes(path),
+      );
       return { videos, otherArtifacts, all: [...videos, ...otherArtifacts] };
     }
     for (const key of ["files", "lastFiles"]) {

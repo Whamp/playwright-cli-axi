@@ -123,6 +123,27 @@ const VIDEO_HELP: Record<string, HelpDefinition> = {
       "playwright-cli-axi video-stop",
     ],
   },
+  "video-chapters": {
+    command: "video-chapters",
+    summary:
+      "Read the recorded chapter manifest with seek offsets relative to recording start.",
+    usage: "playwright-cli-axi video-chapters",
+    args: [],
+    flags: [],
+    examples: [
+      "playwright-cli-axi video-chapters",
+      "playwright-cli-axi video-status",
+    ],
+  },
+  "video-status": {
+    command: "video-status",
+    summary:
+      "Print the full recording summary: status, files, chapter manifest, actions, and warnings.",
+    usage: "playwright-cli-axi video-status",
+    args: [],
+    flags: [],
+    examples: ["playwright-cli-axi video-status"],
+  },
 };
 
 const WRAPPER_HELP: Record<string, HelpDefinition> = {
@@ -137,7 +158,8 @@ const WRAPPER_HELP: Record<string, HelpDefinition> = {
         name: "--scope",
         value: "user|project",
         default: "user",
-        description: "install into ~/.claude and ~/.codex (user) or .claude and .codex in cwd (project)",
+        description:
+          "install into ~/.claude and ~/.codex (user) or .claude and .codex in cwd (project)",
       },
     ],
     examples: [
@@ -153,6 +175,90 @@ const WRAPPER_HELP: Record<string, HelpDefinition> = {
     args: [],
     flags: [],
     examples: ["playwright-cli-axi context"],
+  },
+  scroll: {
+    command: "scroll",
+    summary:
+      "Scroll the page without hand-writing JS: to a snapshot ref, to top/bottom, or by pixels. Only one scroll action can be specified at a time.",
+    usage:
+      "playwright-cli-axi scroll [--to <ref> | --top | --bottom | --by <px>]",
+    args: [],
+    flags: [
+      {
+        name: "--to",
+        value: "<ref>",
+        default: "",
+        description: "snapshot ref to scrollIntoView",
+      },
+      {
+        name: "--top",
+        value: "",
+        default: "",
+        description: "scroll to the top of the page",
+      },
+      {
+        name: "--bottom",
+        value: "",
+        default: "",
+        description: "scroll to the bottom of the page",
+      },
+      {
+        name: "--by",
+        value: "<px>",
+        default: "",
+        description: "scroll by a pixel delta (negative scrolls up)",
+      },
+    ],
+    examples: [
+      "playwright-cli-axi scroll --to e55",
+      "playwright-cli-axi scroll --bottom",
+      "playwright-cli-axi scroll --by 600",
+    ],
+  },
+  wait: {
+    command: "wait",
+    summary:
+      "Wait for a Playwright page load state so post-navigation state is trustworthy without manual sleep. When used via --wait on navigation commands, wait failures surface as a wait_warning field instead of masking the navigation result. For SPA navigations where networkidle is not enough, use --settle (load state + URL-stability poll).",
+    usage:
+      "playwright-cli-axi wait [--state load|domcontentloaded|networkidle] [--timeout <ms>]",
+    args: [],
+    flags: [
+      {
+        name: "--state",
+        value: "load|domcontentloaded|networkidle",
+        default: "networkidle",
+        description: "Playwright load state to wait for",
+      },
+      {
+        name: "--timeout",
+        value: "<ms>",
+        default: "5000",
+        description: "maximum time to wait",
+      },
+    ],
+    examples: [
+      "playwright-cli-axi wait --state networkidle",
+      "playwright-cli-axi click e5 --wait load",
+    ],
+  },
+  find: {
+    command: "find",
+    summary:
+      "Look up labelled page data from the current snapshot by text/name, pairing adjacent label/value nodes.",
+    usage: 'playwright-cli-axi find "<label>"',
+    args: [
+      {
+        name: "label",
+        required: true,
+        description:
+          "text/accessible-name to find in the snapshot (case-insensitive)",
+      },
+    ],
+    flags: [],
+    examples: [
+      'playwright-cli-axi find "Classrooms"',
+      'playwright-cli-axi find "Start Free Trial"',
+    ],
   },
 };
 
@@ -173,6 +279,9 @@ export function helpToStdout(command?: string): string {
       ([name, summary]) => `${name}: ${summary}`,
     ),
     examples: CATALOG.next,
+    help: [
+      "Run 'playwright-cli-axi <command> --help' (or 'playwright-cli-axi help <command>') for command flags",
+    ],
   });
 }
 

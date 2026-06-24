@@ -2,30 +2,31 @@ import fc, { type Arbitrary } from "fast-check";
 import { describe, expect, it } from "vitest";
 
 import {
+  asyncPropertyOptions,
   parsedJson,
   parsedText,
-  asyncPropertyOptions,
   propertyOptions,
   safeArgArb,
   videoSizeArb,
 } from "../test/arbitraries.js";
 import type { UpstreamRun } from "../upstream/runner.js";
+import type { VideoCommandName } from "./commandSurface.js";
 import {
   extractVideoArtifacts,
   extractVideoLinks,
   handleVideoCommand,
   validateVideoCommand,
-  videoStartConflicts,
   videoStartConflictMessage,
+  videoStartConflicts,
 } from "./videoCommands.js";
-import type { VideoCommandName } from "./commandSurface.js";
 import {
   defaultVideoState,
   type VideoSidecarState,
   type VideoStore,
 } from "./videoState.js";
 
-const durationArb = fc.integer({ min: 0, max: 10_000 }).map(String);const positionArb = fc.constantFrom(
+const durationArb = fc.integer({ min: 0, max: 10_000 }).map(String);
+const positionArb = fc.constantFrom(
   "top-left",
   "top",
   "top-right",
@@ -280,6 +281,7 @@ describe("videoCommands properties", () => {
             upstream,
             store,
             now: () => new Date("2026-06-23T20:00:00.000Z"),
+            pageOpenChecker: async () => "open",
           });
 
           if (step.kind === "start" && model.recording.status === "active") {
@@ -413,7 +415,8 @@ describe("properties: video-start while active (AXI idempotency)", () => {
         fc.option(safeArgArb, { nil: undefined }),
         fc.option(videoSizeArb, { nil: undefined }),
         (file, size) => {
-          const flags: Record<string, string> = size === undefined ? {} : { size };
+          const flags: Record<string, string> =
+            size === undefined ? {} : { size };
           const conflicts = videoStartConflicts(state, {
             positionals: file === undefined ? [] : [file],
             flags,

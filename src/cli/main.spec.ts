@@ -1,22 +1,21 @@
-import { mkdtemp, readFile, readdir } from "node:fs/promises";
+import { mkdtemp, readdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { describe, expect, it } from "vitest";
-import { runCli } from "./main.js";
-
-import {
-  createVideoStore,
-  type VideoSidecarState,
-} from "../domain/videoState.js";
-
 import {
   CLOSE_LIKE_COMMANDS,
   COMMAND_GROUPS,
   commandMatrixRows,
 } from "../domain/upstreamCommands.js";
-import type { CliDependencies } from "./main.js";
+
+import {
+  createVideoStore,
+  type VideoSidecarState,
+} from "../domain/videoState.js";
 import type { UpstreamRun } from "../upstream/runner.js";
+import type { CliDependencies } from "./main.js";
+import { runCli } from "./main.js";
 
 describe("runCli", () => {
   it("should print a content-first home view when invoked without arguments", async () => {
@@ -262,9 +261,15 @@ describe("runCli", () => {
   });
 
   it("strips wrapper-only flags before forwarding video commands to upstream (F2)", async () => {
-    const harness = await createHarness([{ stdout: "Video recording started." }]);
+    const harness = await createHarness([
+      { stdout: "Video recording started." },
+    ]);
     const result = await harness.run([
-      "video-start", "--full", "--fields", "id", "./out.webm",
+      "video-start",
+      "--full",
+      "--fields",
+      "id",
+      "./out.webm",
     ]);
     expect(result.exitCode).toBe(0);
     // Wrapper-only flags never reach the (injected) upstream runner from video.
@@ -272,7 +277,9 @@ describe("runCli", () => {
   });
 
   it("routes `context` to a compact session-start slice via list --all (O9)", async () => {
-    const harness = await createHarness([{ stdout: '{"browsers":[{"id":1}]}' }]);
+    const harness = await createHarness([
+      { stdout: '{"browsers":[{"id":1}]}' },
+    ]);
     const result = await harness.run(["context"]);
     expect(result.exitCode).toBe(0);
     expect(harness.upstreamRuns).toEqual([["list", "--all"]]);
@@ -285,7 +292,12 @@ describe("runCli", () => {
   it("strips --full/--fields before forwarding generic commands and bounds results (O9)", async () => {
     const big = { snapshot: "x".repeat(3000) };
     const harness = await createHarness([{ stdout: JSON.stringify(big) }]);
-    const result = await harness.run(["config-print", "--full", "--fields", "id"]);
+    const result = await harness.run([
+      "config-print",
+      "--full",
+      "--fields",
+      "id",
+    ]);
     expect(result.exitCode).toBe(0);
     // Wrapper flags stripped before the upstream spawn.
     expect(harness.upstreamRuns[0]).toEqual(["config-print"]);
@@ -295,7 +307,9 @@ describe("runCli", () => {
   });
 
   it("routes `setup` with injected deps and does not touch the real home (O9)", async () => {
-    const stateRoot = await mkdtemp(join(tmpdir(), "playwright-cli-axi-setup-"));
+    const stateRoot = await mkdtemp(
+      join(tmpdir(), "playwright-cli-axi-setup-"),
+    );
     const files = new Map<string, string>();
     const result = await runCli(["setup", "--scope", "project"], {
       cwd: join(stateRoot, "repo"),
@@ -306,7 +320,9 @@ describe("runCli", () => {
       setupDeps: {
         which: () => undefined,
         readFile: (p) => files.get(p),
-        writeFile: (p, c) => { files.set(p, c); },
+        writeFile: (p, c) => {
+          files.set(p, c);
+        },
         exists: (p) => files.has(p),
         realpath: (p) => p,
       },
@@ -315,7 +331,9 @@ describe("runCli", () => {
     expect(result.stdout).toContain("command: setup");
     expect(result.stdout).toContain("status: ok");
     // Wrote into the injected map, not the real ~/.claude.
-    expect(Array.from(files.keys()).some((p) => p.includes(".claude"))).toBe(true);
+    expect(Array.from(files.keys()).some((p) => p.includes(".claude"))).toBe(
+      true,
+    );
   });
 
   it("should preserve session flags for video-start while excluding them from validation", async () => {
@@ -753,6 +771,311 @@ describe("runCli", () => {
     expect(result.stdout).toContain("playwright-cli install-browser [browser]");
     expect(result.stdout).not.toContain("video_commands");
   });
+
+  it("F-1: 'help <command>' is an alias for <command> --help", async () => {
+    const harness = await createHarness([
+      {
+        stdout:
+          "playwright-cli screenshot [target]\n\nscreenshot of the current page or element\n\nOptions:\n  --filename",
+      },
+    ]);
+    const result = await harness.run(["help", "screenshot"]);
+    expect(result.exitCode).toBe(0);
+    expect(harness.upstreamRuns).toEqual([["screenshot", "--help"]]);
+    expect(result.stdout).toContain("command: screenshot");
+  });
+
+  it("F-1: root --help advertises the per-command --help path", async () => {
+    const harness = await createHarness([]);
+    const result = await harness.run(["--help"]);
+    expect(result.stdout).toContain("<command> --help");
+    expect(result.stdout).toContain("help <command>");
+  });
+
+  it("P-4: scroll --to <ref> forwards a scrollIntoView eval", async () => {
+    const harness = await createHarness([{ stdout: "" }]);
+    const result = await harness.run(["scroll", "--to", "e55"]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("command: scroll");
+    expect(result.stdout).toContain("scrolled ref e55 into view");
+    expect(harness.upstreamRuns[0]?.[0]).toBe("eval");
+    expect(harness.upstreamRuns[0]?.[1]).toContain("scrollIntoView");
+    expect(harness.upstreamRuns[0]).toContain("e55");
+  });
+
+  it("P-4: scroll --by <px> rejects non-integers with exit 2", async () => {
+    const harness = await createHarness([]);
+    const result = await harness.run(["scroll", "--by", "abc"]);
+    expect(result.exitCode).toBe(2);
+    expect(result.stdout).toContain("kind: usage");
+  });
+
+  it("P-4: scroll with no target is a usage error", async () => {
+    const harness = await createHarness([]);
+    const result = await harness.run(["scroll"]);
+    expect(result.exitCode).toBe(2);
+    expect(result.stdout).toContain("--to");
+    expect(result.stdout).toContain("--bottom");
+  });
+
+  it("P-5: wait forwards a waitForLoadState run-code", async () => {
+    const harness = await createHarness([{ stdout: "" }]);
+    const result = await harness.run(["wait", "--state", "networkidle"]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("command: wait");
+    expect(result.stdout).toContain("state: networkidle");
+    expect(harness.upstreamRuns[0]?.[0]).toBe("run-code");
+    expect(harness.upstreamRuns[0]?.[1]).toContain(
+      "waitForLoadState('networkidle'",
+    );
+    // N-1: the snippet MUST be an async arrow function expression (upstream
+    // run-code wraps it in a non-async body, so a bare `await` is a SyntaxError).
+    expect(harness.upstreamRuns[0]?.[1]?.startsWith("async (page) =>")).toBe(
+      true,
+    );
+  });
+
+  it("P-5: --wait on a generic command issues a post-action wait", async () => {
+    const harness = await createHarness([
+      { stdout: "clicked" },
+      { stdout: "" },
+    ]);
+    const result = await harness.run(["click", "e5", "--wait", "load"]);
+    expect(result.exitCode).toBe(0);
+    // wrapper-only --wait is stripped from the forwarded click argv
+    expect(harness.upstreamRuns[0]).toEqual(["click", "e5"]);
+    expect(harness.upstreamRuns[1]?.[0]).toBe("run-code");
+    // N-1: the post-action wait snippet must be the async arrow form too.
+    expect(harness.upstreamRuns[1]?.[1]?.startsWith("async (page) =>")).toBe(
+      true,
+    );
+    expect(result.stdout).toContain("command: click");
+  });
+
+  it("N-2: a --wait failure after a successful command does not mask the success", async () => {
+    const harness = await createHarness([
+      { stdout: "clicked" },
+      { stdout: "", exitCode: 1, stderr: "wait blew up" },
+    ]);
+    const result = await harness.run(["click", "e5", "--wait", "load"]);
+    // The click itself succeeded, so the result must stay exit 0 with the
+    // primary result intact and a visible wait_warning (not a hard error).
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("command: click");
+    expect(result.stdout).toContain("wait_warning:");
+    expect(result.stdout).toContain("post-action wait for 'load' failed");
+    expect(result.stdout).not.toContain("kind: upstream_error");
+  });
+
+  it("N-8: video-start with no open browser page warns with guidance (exit 2)", async () => {
+    const harness = await createHarness([], { pageOpen: "closed" });
+    const result = await harness.run(["video-start", "./out.webm"]);
+    expect(result.exitCode).toBe(2);
+    expect(result.stdout).toContain("requires an open browser page");
+    expect(result.stdout).toContain("playwright-cli-axi open <url>");
+    // No recording was started, so no upstream video-start call was forwarded.
+    expect(harness.upstreamRuns).toEqual([]);
+  });
+
+  it("N-8: video-start proceeds when a browser page is open", async () => {
+    const harness = await createHarness([
+      { stdout: "Video recording started." },
+    ]);
+    const result = await harness.run(["video-start", "./out.webm"]);
+    expect(result.exitCode).toBe(0);
+    expect(harness.upstreamRuns[0]).toEqual(["video-start", "./out.webm"]);
+  });
+
+  it("P-4: scroll --to without value is a usage error", async () => {
+    const harness = await createHarness([]);
+    const result = await harness.run(["scroll", "--to"]);
+    expect(result.exitCode).toBe(2);
+    expect(result.stdout).toContain("kind: usage");
+    expect(result.stdout).toContain("--to requires a reference value");
+  });
+
+  it("P-4: scroll --by without value is a usage error", async () => {
+    const harness = await createHarness([]);
+    const result = await harness.run(["scroll", "--by"]);
+    expect(result.exitCode).toBe(2);
+    expect(result.stdout).toContain("kind: usage");
+    expect(result.stdout).toContain("--by requires a pixel value");
+  });
+
+  it("P-5: wait --timeout zero is a usage error", async () => {
+    const harness = await createHarness([]);
+    const result = await harness.run(["wait", "--timeout", "0"]);
+    expect(result.exitCode).toBe(2);
+    expect(result.stdout).toContain("kind: usage");
+    expect(result.stdout).toContain("timeout must be a positive integer");
+  });
+
+  it("F-4: video-chapters reads the chapter manifest with offsets", async () => {
+    const harness = await createHarness([
+      { stdout: "Video recording started." },
+      { stdout: "Action annotations enabled." },
+    ]);
+    await harness.run(["video-start", "./rec.webm", "--size", "320x240"]);
+    await harness.run(["video-chapter", "Intro"]);
+    const result = await harness.run(["video-chapters"]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("command: video-chapters");
+    expect(result.stdout).toContain("offset:");
+    expect(result.stdout).toContain("Intro");
+  });
+
+  it("F-4: video-status reports recording summary and chapters", async () => {
+    const harness = await createHarness([
+      { stdout: "Video recording started." },
+      { stdout: "Action annotations enabled." },
+    ]);
+    await harness.run(["video-start", "./rec.webm"]);
+    await harness.run(["video-chapter", "A"]);
+    const result = await harness.run(["video-status"]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("command: video-status");
+    expect(result.stdout).toContain("requestedFile: ./rec.webm");
+    expect(result.stdout).toContain("chapter_rows");
+  });
+
+  it("C-5: help <unknown> returns Unknown command consistent with the router (exit 2)", async () => {
+    const harness = await createHarness([]);
+    const result = await harness.run(["help", "get-url"]);
+    expect(result.exitCode).toBe(2);
+    expect(result.stdout).toContain("kind: usage");
+    expect(result.stdout).toContain("Unknown command: get-url");
+    // no upstream call was made (consistent existence check, no permissive help)
+    expect(harness.upstreamRuns).toEqual([]);
+  });
+
+  it("C-5: <unknown> --help also returns Unknown command", async () => {
+    const harness = await createHarness([]);
+    const result = await harness.run(["bogus-command", "--help"]);
+    expect(result.exitCode).toBe(2);
+    expect(result.stdout).toContain("Unknown command: bogus-command");
+  });
+
+  it("C-5: help <known-upstream> still forwards to upstream help", async () => {
+    const harness = await createHarness([
+      { stdout: "Usage: playwright-cli click [options]\n  click an element" },
+    ]);
+    const result = await harness.run(["help", "click"]);
+    expect(result.exitCode).toBe(0);
+    expect(harness.upstreamRuns[0]).toContain("click");
+    expect(result.stdout).toContain("source: @playwright/cli");
+  });
+
+  it("C-4: --settle issues a deterministic settle run-code after a click", async () => {
+    const harness = await createHarness([
+      { stdout: "clicked" },
+      { stdout: "" },
+    ]);
+    const result = await harness.run(["click", "e5", "--settle"]);
+    expect(result.exitCode).toBe(0);
+    expect(harness.upstreamRuns[0]).toEqual(["click", "e5"]);
+    expect(harness.upstreamRuns[1]?.[0]).toBe("run-code");
+    const settleCode = harness.upstreamRuns[1]?.[1] ?? "";
+    // the emitted settle snippet is the async-arrow URL-stability form
+    expect(settleCode.startsWith("async (page) =>")).toBe(true);
+    expect(settleCode).toContain("page.url()");
+    expect(result.stdout).not.toContain("wait_warning");
+  });
+
+  it("C-1: a click that blocks on an invalid field surfaces validation (exit stays 0)", async () => {
+    const harness = await createHarness([{ stdout: "clicked" }], {
+      validation: {
+        activeIsInvalid: true,
+        fields: [
+          {
+            tag: "input",
+            type: "email",
+            name: "email",
+            id: "",
+            placeholder: "you@school.com",
+            label: "Email",
+            message: "Please include an '@' in the email address.",
+          },
+        ],
+      },
+    });
+    const result = await harness.run(["click", "e131"]);
+    // the primary click result is intact and the command still exits 0
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("command: click");
+    expect(result.stdout).toContain("validation:");
+    expect(result.stdout).toContain("ok: false");
+    expect(result.stdout).toContain("Email");
+    expect(result.stdout).toContain("'@' in the email address");
+  });
+
+  it("C-1: a navigating/valid click adds no validation block", async () => {
+    const harness = await createHarness([{ stdout: "clicked" }]);
+    const result = await harness.run(["click", "e5"]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).not.toContain("validation:");
+  });
+
+  it("C-1: a validation probe failure never breaks the click", async () => {
+    // no validation option -> harness returns activeIsInvalid:false; the probe
+    // is swallowed and the click succeeds with no validation block.
+    const harness = await createHarness([{ stdout: "clicked" }]);
+    const result = await harness.run(["click", "e5"]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("command: click");
+  });
+
+  it("C-3: find returns structured matches with refs from the snapshot", async () => {
+    const harness = await createHarness([
+      {
+        stdout:
+          '{"result":{"snapshot":"- generic [ref=e253]: 0/0\\n- generic [ref=e254]: Classrooms"}}',
+      },
+    ]);
+    const result = await harness.run(["find", "Classrooms"]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("command: find");
+    expect(result.stdout).toContain("matches: 1");
+    expect(result.stdout).toContain("e254");
+    expect(result.stdout).toContain("0/0");
+  });
+
+  it("C-3: find with no query is a usage error", async () => {
+    const harness = await createHarness([]);
+    const result = await harness.run(["find"]);
+    expect(result.exitCode).toBe(2);
+    expect(result.stdout).toContain("find needs a label");
+  });
+
+  it("C-3: find reports a definitive empty state when nothing matches", async () => {
+    const harness = await createHarness([
+      { stdout: '{"result":{"snapshot":"- heading \\"Basic\\" [ref=e1]"}}' },
+    ]);
+    const result = await harness.run(["find", "Nonexistent"]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("matches: 0");
+    expect(result.stdout).toContain("empty:");
+  });
+
+  it("C-6: select forwards target+value with wrapper flags stripped", async () => {
+    const harness = await createHarness([{ stdout: "{}" }]);
+    const result = await harness.run(["select", "e5", "green", "--full"]);
+    expect(result.exitCode).toBe(0);
+    expect(harness.upstreamRuns[0]).toEqual(["select", "e5", "green"]);
+  });
+
+  it("C-6: check forwards the target with wrapper flags stripped", async () => {
+    const harness = await createHarness([{ stdout: "{}" }]);
+    const result = await harness.run(["check", "e8", "--fields", "x"]);
+    expect(result.exitCode).toBe(0);
+    expect(harness.upstreamRuns[0]).toEqual(["check", "e8"]);
+  });
+
+  it("C-6: upload forwards the file path (no ref) with wrapper flags stripped", async () => {
+    const harness = await createHarness([{ stdout: "{}" }]);
+    const result = await harness.run(["upload", "/abs/file.png", "--full"]);
+    expect(result.exitCode).toBe(0);
+    expect(harness.upstreamRuns[0]).toEqual(["upload", "/abs/file.png"]);
+  });
 });
 
 interface FakeRun {
@@ -761,10 +1084,18 @@ interface FakeRun {
   stderr?: string;
 }
 
-async function createHarness(fakeRuns: FakeRun[]) {
+async function createHarness(
+  fakeRuns: FakeRun[],
+  options: {
+    pageOpen?: "open" | "closed";
+    validation?: { activeIsInvalid: boolean; fields?: unknown[] };
+  } = {},
+) {
   const stateRoot = await mkdtemp(join(tmpdir(), "playwright-cli-axi-test-"));
   const cwd = join(stateRoot, "workspace");
   const upstreamRuns: string[][] = [];
+  const pageOpen = options.pageOpen ?? "open";
+  const validation = options.validation;
   const deps: CliDependencies = {
     cwd,
     executablePath: "/home/will/.local/bin/playwright-cli-axi",
@@ -773,6 +1104,46 @@ async function createHarness(fakeRuns: FakeRun[]) {
     upstreamVersion: "0.1.14",
     wrapperVersion: "0.1.0",
     upstream: async (argv): Promise<UpstreamRun> => {
+      // N-8: video-start's page-open guard probes `list --json` before starting
+      // a recording. Answer it with an open browser WITHOUT consuming the
+      // command-under-test response queue or recording it in upstreamRuns
+      // (the probe is an internal guard, not the command under test). The
+      // closed-page guard path is covered directly in videoCommands.spec.ts.
+      if (argv[0] === "list" && argv[1] === "--json") {
+        return {
+          argv,
+          exitCode: 0,
+          stdout:
+            pageOpen === "open"
+              ? '{"browsers":[{"id":"1","name":"browser"}]}'
+              : '{"browsers":[]}',
+          stderr: "",
+          usedJson: true,
+        };
+      }
+      // C-1: the validation probe runs after a submit-triggering click. Answer
+      // it without consuming the command-under-test queue (it is an internal
+      // probe, not the command under test); the closed-page guard path is
+      // covered directly in main.spec.ts via the `validation` option.
+      if (
+        argv[0] === "run-code" &&
+        typeof argv[1] === "string" &&
+        argv[1].includes("pca-validation-probe")
+      ) {
+        // run-code wraps its return value in { result: "<json>" }, matching the
+        // real upstream contract the probe unwraps.
+        return {
+          argv,
+          exitCode: 0,
+          stdout: JSON.stringify({
+            result: JSON.stringify(
+              validation ?? { activeIsInvalid: false, fields: [] },
+            ),
+          }),
+          stderr: "",
+          usedJson: true,
+        };
+      }
       upstreamRuns.push(argv);
       const next = fakeRuns.shift();
       if (!next) throw new Error(`unexpected upstream call: ${argv.join(" ")}`);

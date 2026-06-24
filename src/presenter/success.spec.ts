@@ -3,6 +3,12 @@ import { describe, expect, it } from "vitest";
 import { commandSuccessModel } from "./success.js";
 import { toToon } from "./toon.js";
 
+const json = (value: unknown) => ({
+  kind: "json" as const,
+  value,
+  isError: false,
+});
+
 describe("commandSuccessModel", () => {
   it("should format list results with explicit empty state", () => {
     // Arrange
@@ -62,9 +68,10 @@ describe("commandSuccessModel", () => {
     expect(output).toContain("debug,chromium,1.2.3,/tmp/profile,/repo");
     expect(output).toContain("channel_sessions:\n  count: 1");
     expect(output).toContain(
-      "channel_session_rows[1]{channel,dataDir,extension,endpoint}:",
+      "channel_session_rows[1]{channel,dataDir,extension,endpoint,usable}:",
     );
-    expect(output).toContain("chrome,/tmp/chrome,yes,yes");
+    // `usable` is a machine-dependent derived field; assert the stable prefix.
+    expect(output).toContain("chrome,/tmp/chrome,yes,yes,");
   });
 
   it("should preserve single close session status instead of treating it as close-all", () => {
@@ -358,7 +365,10 @@ describe("commandSuccessModel --full (AXI principle 3)", () => {
   it("reports result_bytes as true UTF-8 bytes (not code units) (F4)", () => {
     const value = { text: "界".repeat(600) };
     const parsed = { kind: "json", value, isError: false } as const;
-    const model = commandSuccessModel("config-print", parsed) as Record<string, unknown>;
+    const model = commandSuccessModel("config-print", parsed) as Record<
+      string,
+      unknown
+    >;
     const expectedBytes = Buffer.byteLength(JSON.stringify(value), "utf8");
     expect(model.result_bytes).toBe(expectedBytes);
     expect(model.result_truncated).toBe(true);
@@ -367,7 +377,10 @@ describe("commandSuccessModel --full (AXI principle 3)", () => {
   it("does not split a multibyte/surrogate code point at the byte boundary (F4)", () => {
     const value = { text: "😀".repeat(700) };
     const parsed = { kind: "json", value, isError: false } as const;
-    const model = commandSuccessModel("config-print", parsed) as Record<string, unknown>;
+    const model = commandSuccessModel("config-print", parsed) as Record<
+      string,
+      unknown
+    >;
     const preview = String(model.result);
     // The truncated preview must round-trip through UTF-8 without a replacement
     // char, proving no surrogate pair was split.
@@ -382,10 +395,270 @@ describe("commandSuccessModel --full (AXI principle 3)", () => {
     const overBoundary = { x: "a".repeat(1493) };
     const p1 = { kind: "json", value: atBoundary, isError: false } as const;
     const p2 = { kind: "json", value: overBoundary, isError: false } as const;
-    const m1 = commandSuccessModel("config-print", p1) as Record<string, unknown>;
-    const m2 = commandSuccessModel("config-print", p2) as Record<string, unknown>;
+    const m1 = commandSuccessModel("config-print", p1) as Record<
+      string,
+      unknown
+    >;
+    const m2 = commandSuccessModel("config-print", p2) as Record<
+      string,
+      unknown
+    >;
     expect(m1.result_truncated).toBeUndefined();
     expect(m2.result_truncated).toBe(true);
-    expect(m2.result_bytes).toBe(Buffer.byteLength(JSON.stringify(overBoundary), "utf8"));
+    expect(m2.result_bytes).toBe(
+      Buffer.byteLength(JSON.stringify(overBoundary), "utf8"),
+    );
+  });
+});
+
+describe("commandSuccessModel navigation flatten (P-1) and snapshot render (P-2)", () => {
+  it("P-1: lifts the snapshot file to top level for open, dropping result.result nesting", () => {
+    const parsed = {
+      kind: "json" as const,
+      value: {
+        session: "default",
+        pid: 42,
+        result: { snapshot: { file: ".cache/page-x.yml" } },
+      },
+      isError: false,
+    };
+    const model = commandSuccessModel("open", parsed);
+    expect(model.snapshot).toEqual({ file: ".cache/page-x.yml" });
+    // session/pid preserved under result, redundant inner result dropped
+    const result = model.result as Record<string, unknown>;
+    expect(result.session).toBe("default");
+    expect(result.pid).toBe(42);
+    expect(result.result).toBeUndefined();
+  });
+
+  it("P-1: flattens goto/click results the same way", () => {
+    const parsed = {
+      kind: "json" as const,
+      value: { result: { snapshot: { file: "p.yml" } } },
+      isError: false,
+    };
+    expect(
+      (commandSuccessModel("goto", parsed) as Record<string, unknown>).snapshot,
+    ).toEqual({ file: "p.yml" });
+    expect(
+      (commandSuccessModel("click", parsed) as Record<string, unknown>)
+        .snapshot,
+    ).toEqual({ file: "p.yml" });
+  });
+
+  it("P-2: renders the snapshot a11y tree as readable bounded text, not JSON-string-of-YAML", () => {
+    const tree = '- generic [ref=e5]:\n  - heading "Hi" [ref=e6]';
+    const parsed = {
+      kind: "json" as const,
+      value: { snapshot: tree },
+      isError: false,
+    };
+    const model = commandSuccessModel("snapshot", parsed);
+    expect(model.snapshot).toBe(tree);
+    expect(JSON.stringify(model)).not.toContain('"{\\"snapshot\\"');
+    expect(model.snapshot_truncated).toBeUndefined();
+  });
+
+  it("P-2: truncates a large snapshot with a char count and --full escape hatch", () => {
+    const tree = "x".repeat(2000);
+    const parsed = {
+      kind: "json" as const,
+      value: { snapshot: tree },
+      isError: false,
+    };
+    const truncated = commandSuccessModel("snapshot", parsed) as Record<
+      string,
+      unknown
+    >;
+    expect(truncated.snapshot_truncated).toBe(true);
+    expect(truncated.snapshot_chars).toBe(2000);
+    expect((truncated.help as string[])[0]).toContain("snapshot --full");
+    const full = commandSuccessModel("snapshot", parsed, {
+      full: true,
+    }) as Record<string, unknown>;
+    expect(full.snapshot).toBe(tree);
+    expect(full.snapshot_truncated).toBeUndefined();
+  });
+});
+
+describe("commandSuccessModel eval/run-code flatten (C-2)", () => {
+  it("C-2: lifts a scalar eval return to a single top-level result (no double result.result)", () => {
+    // upstream JSON-encodes the eval return value into { result: "<json>" }.
+    const model = commandSuccessModel("eval", json({ result: "42" }));
+    expect(model.result).toBe(42);
+    expect(JSON.stringify(model)).not.toContain('"result":{"result"');
+  });
+
+  it("C-2: recovers a string eval return without triple-escaping", () => {
+    const model = commandSuccessModel(
+      "eval",
+      json({ result: JSON.stringify("https://example.com/") }),
+    );
+    expect(model.result).toBe("https://example.com/");
+    // not a JSON-escaped one-line string of a string
+    expect(JSON.stringify(model)).not.toContain('\\"https');
+  });
+
+  it("C-2: recovers booleans/objects and leaves non-JSON strings intact", () => {
+    expect(commandSuccessModel("eval", json({ result: "false" })).result).toBe(
+      false,
+    );
+    expect(
+      commandSuccessModel("eval", json({ result: '{"a":1}' })).result,
+    ).toEqual({ a: 1 });
+    // a bare non-JSON string survives unchanged (no throw)
+    expect(
+      commandSuccessModel("eval", json({ result: "not json" })).result,
+    ).toBe("not json");
+  });
+
+  it("C-2: flattens run-code returns the same way", () => {
+    expect(commandSuccessModel("run-code", json({ result: "42" })).result).toBe(
+      42,
+    );
+  });
+
+  it("C-2: falls back to a plain result when the payload has no result key", () => {
+    const model = commandSuccessModel("eval", json({ ok: true }));
+    expect(model.result).toEqual({ ok: true });
+  });
+});
+
+describe("commandSuccessModel family flatten (H3-2)", () => {
+  // H3-2: upstream wraps storage/network/screenshot payloads as
+  // `{ result: <value> }`; family read commands must lift the inner value to
+  // the top level instead of double-nesting as `result: result: <value>`.
+  it("H3-2: flattens a single-result storage payload (cookie-get)", () => {
+    const model = commandSuccessModel(
+      "cookie-get",
+      json({ result: "test_cookie=hello (domain: example.com)" }),
+    );
+    expect(model.result).toBe("test_cookie=hello (domain: example.com)");
+  });
+
+  it("H3-2: flattens a single-result network payload (requests)", () => {
+    const model = commandSuccessModel(
+      "requests",
+      json({ result: "1. [GET] https://example.com/ => [200]" }),
+    );
+    expect(model.result).toBe("1. [GET] https://example.com/ => [200]");
+  });
+
+  it("H3-2: does NOT JSON-parse the lifted display string (unlike eval)", () => {
+    // Storage values are literal display strings, so a numeric-looking value
+    // stays a string rather than being JSON.parsed back to a number.
+    const model = commandSuccessModel(
+      "localstorage-get",
+      json({ result: "k=42" }),
+    );
+    expect(model.result).toBe("k=42");
+    expect(model.result).not.toBe(42);
+  });
+
+  it("H3-2: leaves a multi-key payload nested (artifact enrichment preserved)", () => {
+    const model = commandSuccessModel(
+      "config-print",
+      json({ configFile: "./playwright.config.json" }),
+    );
+    expect(model.result).toEqual({ configFile: "./playwright.config.json" });
+  });
+});
+
+describe("commandSuccessModel artifact path absolutization (H3-3)", () => {
+  it("H3-3: resolves a relative screenshot link against the artifact base", () => {
+    const model = commandSuccessModel(
+      "screenshot",
+      json({ result: "- [Screenshot of viewport](shot.png)" }),
+      { artifactBase: "/cache/playwright-cli-axi" },
+    );
+    expect(model.result).toBe(
+      "- [Screenshot of viewport](/cache/playwright-cli-axi/shot.png)",
+    );
+  });
+
+  it("H3-3: canonicalizes parent-segment relative paths (../../)", () => {
+    const model = commandSuccessModel(
+      "state-save",
+      json({ result: "- [Storage state](../../repo/state.json)" }),
+      { artifactBase: "/cache/playwright-cli-axi" },
+    );
+    expect(model.result).toBe("- [Storage state](/repo/state.json)");
+  });
+
+  it("H3-3: leaves an already-absolute link target untouched", () => {
+    const model = commandSuccessModel(
+      "screenshot",
+      json({ result: "- [Screenshot](/abs/shot.png)" }),
+      { artifactBase: "/cache" },
+    );
+    expect(model.result).toBe("- [Screenshot](/abs/shot.png)");
+  });
+
+  it("H3-3: leaves a non-link network string untouched", () => {
+    const model = commandSuccessModel(
+      "requests",
+      json({ result: "1. [GET] https://example.com/ => [200]" }),
+      { artifactBase: "/cache" },
+    );
+    expect(model.result).toBe("1. [GET] https://example.com/ => [200]");
+  });
+
+  it("H3-3: resolves a link target whose path contains parentheses", () => {
+    const model = commandSuccessModel(
+      "screenshot",
+      json({ result: "- [Screenshot](my (report).png)" }),
+      { artifactBase: "/cwd" },
+    );
+    expect(model.result).toBe("- [Screenshot](/cwd/my (report).png)");
+  });
+});
+
+describe("commandSuccessModel storage empty states (H3-4)", () => {
+  it("H3-4: attaches found:false to an empty localstorage-list", () => {
+    const model = commandSuccessModel(
+      "localstorage-list",
+      json({ result: "No localStorage items found" }),
+    );
+    expect(model.found).toBe(false);
+  });
+
+  it("H3-4: attaches found:false to an empty cookie-list", () => {
+    const model = commandSuccessModel(
+      "cookie-list",
+      json({ result: "No cookies found" }),
+    );
+    expect(model.found).toBe(false);
+  });
+
+  it("H3-4: attaches found:false to a missing cookie-get", () => {
+    const model = commandSuccessModel(
+      "cookie-get",
+      json({ result: "Cookie 'nope' not found" }),
+    );
+    expect(model.found).toBe(false);
+  });
+
+  it("H3-4: attaches found:false to a missing localstorage-get", () => {
+    const model = commandSuccessModel(
+      "localstorage-get",
+      json({ result: "localStorage key 'nope' not found" }),
+    );
+    expect(model.found).toBe(false);
+  });
+
+  it("H3-4: does not attach found:false when storage has items", () => {
+    const model = commandSuccessModel(
+      "cookie-list",
+      json({ result: "a=1 (domain: example.com)" }),
+    );
+    expect(model.found).toBeUndefined();
+  });
+
+  it("H3-4: does not attach found:false to non-storage commands", () => {
+    const model = commandSuccessModel(
+      "requests",
+      json({ result: "No requests captured" }),
+    );
+    expect(model.found).toBeUndefined();
   });
 });

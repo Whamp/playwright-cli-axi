@@ -59,6 +59,19 @@ next[5]:
   - playwright-cli-axi list --all
 ```
 
+## Output improvements
+
+The wrapper enhances upstream output for agent usability:
+
+- **Flattened navigation results**: Commands like `open`, `goto`, and `click` return snapshot artifacts at the top level instead of buried under `result.result.snapshot`, making file paths immediately accessible.
+- **Readable snapshot rendering**: Snapshot content renders as readable single-layer text rather than double-escaped JSON-string-of-YAML, improving parseability.
+- **Enhanced error hints**: Usage errors for commands like `screenshot`, `pdf`, and `snapshot` include inline suggestions (e.g., `--filename <path>`) to reduce trial-and-error.
+- **Absolute snapshot paths**: Auto-generated snapshot file paths are returned as absolute paths so they're reliably findable regardless of the upstream artifact directory. Screenshot, PDF, and `state-save` file paths in results are likewise canonicalized to absolute paths.
+- **Flattened eval results**: `eval` and `run-code` commands flatten their single return value to a top-level `result` and undo upstream's JSON encoding, so `eval` of `location.href` returns the URL directly instead of a double-nested, JSON-escaped string. Note: `eval` runs in the **browser DOM context** (no `page`); `run-code` runs in the **node context** and receives `page` (use an `async (page) => { ... }` arrow expression).
+- **Flattened storage/network results**: storage read commands (`cookie-get/list`, `localstorage-*`, `sessionstorage-*`), network commands (`requests`, `request`, `route`, `route-list`, `unroute`, `network-state-set`), and `screenshot`/`pdf`/`state-save`/`state-load` lift their single return value to a top-level `result` instead of double-nesting as `result: result: <value>`.
+- **Definitive storage empty states**: storage read commands attach `found: false` when nothing matches, so emptiness is machine-readable instead of requiring display-string matching.
+- **Findable storage files**: `state-save`/`state-load` relative filenames are resolved against your shell cwd (not the daemon's artifact directory), so saved session state round-trips reliably across a close/open.
+
 ## Common commands
 
 The wrapper forwards all upstream `@playwright/cli` commands. Key commands:
@@ -95,8 +108,8 @@ server_rows[1]{title,browser,version,dataDir,workspace}:
   debug-server,chromium,1.48.0,/tmp/data,/workspace
 channel_sessions:
   count: 1
-channel_session_rows[1]{channel,dataDir,extension,endpoint}:
-  chrome,/tmp/chrome,yes,yes
+channel_session_rows[1]{channel,dataDir,extension,endpoint,usable}:
+  chrome,/tmp/chrome,yes,yes,yes
 ```
 
 Example `close` output preserves upstream single-session close status:
@@ -138,25 +151,35 @@ Run `playwright-cli-axi --help` for the live TOON command matrix. Coverage is
 also checked against upstream `help.json` so newly added upstream commands fail
 tests until they are assigned to a wrapper command family.
 
-| Family                 | Commands                                                                                                                                                                      |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Browser sessions       | `open`, `attach`, `close`, `detach`, `delete-data`, `list`, `close-all`, `kill-all`                                                                                           |
-| Page interaction       | `goto`, `type`, `click`, `dblclick`, `fill`, `drag`, `drop`, `hover`, `select`, `upload`, `check`, `uncheck`, `snapshot`, `eval`, `dialog-accept`, `dialog-dismiss`, `resize` |
-| Navigation             | `go-back`, `go-forward`, `reload`                                                                                                                                             |
-| Keyboard               | `press`, `keydown`, `keyup`                                                                                                                                                   |
-| Mouse                  | `mousemove`, `mousedown`, `mouseup`, `mousewheel`                                                                                                                             |
-| Artifacts              | `screenshot`, `pdf`, `request-headers`, `request-body`, `response-headers`, `response-body`, `tracing-start`, `tracing-stop`                                                  |
-| Tabs                   | `tab-list`, `tab-new`, `tab-close`, `tab-select`                                                                                                                              |
-| Storage                | `state-load`, `state-save`, `cookie-list`, `cookie-get`, `cookie-set`, `cookie-delete`, `cookie-clear`, `localstorage-list`, `localstorage-get`, `localstorage-set`, `localstorage-delete`, `localstorage-clear`, `sessionstorage-list`, `sessionstorage-get`, `sessionstorage-set`, `sessionstorage-delete`, `sessionstorage-clear` |
-| Network                | `requests`, `request`, `route`, `route-list`, `unroute`, `network-state-set`                                                                                                  |
-| DevTools and diagnostics | `console`, `run-code`, `show`, `pause-at`, `resume`, `step-over`, `generate-locator`, `highlight`, `tray`                                                                     |
-| Install and config     | `install`, `install-browser`, `config-print`                                                                                                                                  |
-| Video                  | `video-start`, `video-stop`, `video-chapter`, `video-show-actions`, `video-hide-actions`                                                                                      |
+| Family                   | Commands                                                                                                                                                                                                                                                                                                                             |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Browser sessions         | `open`, `attach`, `close`, `detach`, `delete-data`, `list`, `close-all`, `kill-all`                                                                                                                                                                                                                                                  |
+| Page interaction         | `goto`, `type`, `click`, `dblclick`, `fill`, `drag`, `drop`, `hover`, `select`, `upload`, `check`, `uncheck`, `snapshot`, `eval`, `dialog-accept`, `dialog-dismiss`, `resize`                                                                                                                                                        |
+| Navigation               | `go-back`, `go-forward`, `reload`                                                                                                                                                                                                                                                                                                    |
+| Keyboard                 | `press`, `keydown`, `keyup`                                                                                                                                                                                                                                                                                                          |
+| Mouse                    | `mousemove`, `mousedown`, `mouseup`, `mousewheel`                                                                                                                                                                                                                                                                                    |
+| Artifacts                | `screenshot`, `pdf`, `request-headers`, `request-body`, `response-headers`, `response-body`, `tracing-start`, `tracing-stop`                                                                                                                                                                                                         |
+| Tabs                     | `tab-list`, `tab-new`, `tab-close`, `tab-select`                                                                                                                                                                                                                                                                                     |
+| Storage                  | `state-load`, `state-save`, `cookie-list`, `cookie-get`, `cookie-set`, `cookie-delete`, `cookie-clear`, `localstorage-list`, `localstorage-get`, `localstorage-set`, `localstorage-delete`, `localstorage-clear`, `sessionstorage-list`, `sessionstorage-get`, `sessionstorage-set`, `sessionstorage-delete`, `sessionstorage-clear` |
+| Network                  | `requests`, `request`, `route`, `route-list`, `unroute`, `network-state-set`                                                                                                                                                                                                                                                         |
+| DevTools and diagnostics | `console`, `run-code`, `show`, `pause-at`, `resume`, `step-over`, `generate-locator`, `highlight`, `tray`                                                                                                                                                                                                                            |
+| Install and config       | `install`, `install-browser`, `config-print`                                                                                                                                                                                                                                                                                         |
+| Video                    | `video-start`, `video-stop`, `video-chapter`, `video-show-actions`, `video-hide-actions`                                                                                                                                                                                                                                             |
 
 ## Wrapper commands
 
 - `setup` — Install/repair the SessionStart hook for Claude Code and Codex
 - `context` — Print the token-budgeted session-start context slice (invoked by the hook)
+- `help <command>` — Alias for `<command> --help`; show help for specific commands
+- `scroll` — Scroll the page without hand-writing JS: `--to <ref>` (scrollIntoView a snapshot ref), `--top`, `--bottom`, or `--by <px>` (only one action at a time)
+- `wait` — Wait for a Playwright load state (`load|domcontentloaded|networkidle`) so post-navigation state is trustworthy without manual `sleep`
+- `find` — Look up labelled page data from the current snapshot by text/name (e.g. `find "Classrooms"`) and return structured matches with refs, pairing adjacent label/value nodes so dashboard KPIs and stats read as values instead of grepping a flat tree
+
+Navigation commands also accept a `--wait <state>` flag (e.g. `click e5 --wait networkidle`) that runs a bounded wait after the action. If the wait fails after a successful navigation, the primary result is returned with a `wait_warning` field instead of masking the success. For SPA navigations where `--wait networkidle` does not settle the client-side route, use `--settle` (e.g. `click e5 --settle`), which waits for the load state **and** polls `page.url()` until it stops changing, so the next read sees settled state.
+
+After a submit-triggering `click`/`dblclick`, the wrapper probes HTML5 constraint validation and surfaces `validation: { ok: false, invalid_fields: [...] }` when the browser appears to have blocked the submit (focused an invalid field). HTML5 validation bubbles are not in the accessibility tree, so without this a submit blocked by an invalid field looks identical to a successful submit. The primary click result and exit code are preserved either way.
+
+`eval` and `run-code` flatten their single return value to a top-level `result` and undo upstream's JSON encoding, so `eval "location.href"` returns the URL directly (not `result: result: "\"…\""`). Note `eval` runs in the **browser DOM context** (no `page`); `run-code` runs in the **node context** and receives `page` (use an `async (page) => { ... }` arrow expression).
 
 ## Ambient context (session hook)
 
@@ -190,6 +213,8 @@ Supported video commands:
 playwright-cli-axi video-start [filename] [--size <width>x<height>]
 playwright-cli-axi video-show-actions [--duration <ms>] [--position top-left|top|top-right|bottom-left|bottom|bottom-right] [--cursor pointer|none]
 playwright-cli-axi video-chapter <title> [--description <text>] [--duration <ms>]
+playwright-cli-axi video-chapters
+playwright-cli-axi video-status
 playwright-cli-axi video-hide-actions
 playwright-cli-axi video-stop
 ```
@@ -198,10 +223,13 @@ playwright-cli-axi video-stop
 
 - `video-start [filename]` — Start recording to an optional WebM file path
   - `--size <width>x<height>` — Video frame size (default: fit 800x800)
+  - Requires an open browser page; `open` one first or the command exits 2 with guidance (recording attaches to the active page, so starting before `open` captures nothing). Relative filenames resolve to your shell cwd, so `video-start ./out.webm` lands in the current directory.
 - `video-stop` — Stop recording and report typed `video_files` separately from other artifacts
 - `video-chapter <title>` — Add a chapter marker to the recording timeline
   - `--description <text>` — Optional chapter card description
   - `--duration <ms>` — Milliseconds to show the chapter card (default: upstream default)
+- `video-chapters` — Read the recorded chapter manifest with seek offsets relative to recording start
+- `video-status` — Print the full recording summary: status, files, chapter manifest, actions, and warnings
 - `video-show-actions` — Overlay action names and target highlights on the page
   - `--duration <ms>` — Milliseconds each annotation remains visible (default: 500)
   - `--position top-left|top|top-right|bottom-left|bottom|bottom-right` — Where to place action titles (default: top-right)
@@ -287,6 +315,8 @@ file/size, timestamps, and recent reported files when they exist.
 - `--version` / `-v` — Print a clean TOON version (wrapper + upstream), not forwarded to upstream
 - `--full` — Bypass generic JSON result truncation (results above 1500 bytes are previewed by default with a byte count and this escape hatch)
 - `--fields a,b,c` — Select additional list columns (defaults to `id,name,status`; available browser fields include `browserType`, `version`, `compatible`, `attached`, `userDataDir`, `headed`)
+- `--wait <state>` — After a navigation command, wait for a Playwright load state (`load|domcontentloaded|networkidle`); network only, may race SPA route mounting
+- `--settle [state]` — After a navigation command, wait for the load state **and** poll the URL to stability (deterministic SPA settle; default state `networkidle`)
 - `--json` — Ignored (wrapper stdout is always TOON)
 
 ## Error handling
@@ -311,11 +341,21 @@ help[1]:
 
 ## Browser prerequisite
 
-If Chrome is missing, install the upstream browser:
+The wrapper auto-discovers a usable system browser per OS and injects it automatically:
+
+- **Linux**: Searches for Chromium/Chrome/Edge/Brave in standard locations including Arch `/usr/bin/chromium`, Ubuntu `/usr/bin/google-chrome-stable`, snap `/snap/bin/chromium`, and Firefox/Brave.
+- **macOS**: Checks for Chrome/Chrome Beta/Chrome Canary/Chromium in `/Applications/`.
+- **Windows**: Looks for Chrome/Edge in `Program Files` and `LocalAppData` paths.
+
+Channel sessions displayed by `list --all` include a `usable` field indicating whether a browser for that channel is installed and drivable.
+
+If no system browser is found, install the upstream browser:
 
 ```sh
 node dist/bin/playwright-cli-axi.js install-browser chrome-for-testing
 ```
+
+Or override auto-discovery with the `PLAYWRIGHT_MCP_EXECUTABLE_PATH` environment variable.
 
 If a system Chromium exists, you can also run smoke tests with:
 
@@ -395,7 +435,8 @@ closes the browser, checks that the WebM exists and is non-empty, and uses
 ## Environment variables
 
 - `XDG_STATE_HOME` — Override the base directory for sidecar state files (default: `~/.local/state`)
-- `PLAYWRIGHT_MCP_EXECUTABLE_PATH` — Path to a system Chromium browser for testing (e.g., `/usr/bin/chromium`)
+- `PLAYWRIGHT_MCP_EXECUTABLE_PATH` — Path to a system Chromium/Chrome/Edge. When unset, the wrapper auto-discovers one per OS; set it to override.
+- `PLAYWRIGHT_CLI_AXI_ARTIFACT_DIR` — Directory upstream runs in, so auto-generated snapshots (`.playwright-cli/page-*.yml`) land here instead of polluting your working directory. Defaults to an OS cache dir. Named screenshots/videos are resolved against your shell cwd, so they still land where you expect.
 - `NO_COLOR` — Set to `1` to disable colored output from upstream (always set by the wrapper)
 
 ## Generated skill

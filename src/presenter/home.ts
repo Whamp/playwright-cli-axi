@@ -1,7 +1,11 @@
 import { CATALOG } from "../content/catalog.js";
 import type { SessionSummary } from "../domain/sessions.js";
-import type { VideoSidecarState } from "../domain/videoState.js";
-import { table, type ToonValue } from "./toon.js";
+import { CHANNEL_TABLE_FIELDS } from "../domain/sessions.js";
+import {
+  chapterManifest,
+  type VideoSidecarState,
+} from "../domain/videoState.js";
+import { type ToonValue, table } from "./toon.js";
 
 export interface HomeInput {
   executablePath: string;
@@ -55,7 +59,7 @@ export function homeModel(input: HomeInput): ToonValue {
     ...(input.sessions.channelSessions.rows.length > 0
       ? {
           channel_session_rows: table(
-            ["channel", "dataDir", "extension", "endpoint"],
+            CHANNEL_TABLE_FIELDS,
             input.sessions.channelSessions.rows,
           ),
         }
@@ -78,6 +82,9 @@ export function homeModel(input: HomeInput): ToonValue {
         : {}),
       ...(input.video.recording.stoppedAt
         ? { stoppedAt: input.video.recording.stoppedAt }
+        : {}),
+      ...(input.video.chapters.length > 0
+        ? { chapter_rows: chapterManifest(input.video) }
         : {}),
       ...(input.video.lastFiles.length > 0
         ? { lastFiles: input.video.lastFiles.slice(-3) }

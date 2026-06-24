@@ -4,15 +4,15 @@ import { describe, expect, it } from "vitest";
 
 import { VIDEO_COMMANDS } from "./commandSurface.js";
 import {
-  CLOSE_LIKE_COMMANDS,
   CLOSE_LIKE_COMMAND_SCOPES,
+  CLOSE_LIKE_COMMANDS,
   COMMAND_GROUPS,
   CWD_WIDE_CLOSE_LIKE_COMMANDS,
-  GLOBAL_CLOSE_LIKE_COMMANDS,
-  UPSTREAM_COMMANDS,
   closeScopeFor,
   commandGroupFor,
+  GLOBAL_CLOSE_LIKE_COMMANDS,
   isCloseLikeCommand,
+  UPSTREAM_COMMANDS,
 } from "./upstreamCommands.js";
 
 describe("upstream command coverage", () => {
@@ -52,7 +52,16 @@ describe("upstream command coverage", () => {
   it("keeps video command routing and command-matrix metadata in sync", () => {
     const videoGroup = COMMAND_GROUPS.find((group) => group.id === "video");
 
-    expect(videoGroup?.commands).toEqual(VIDEO_COMMANDS);
+    // Every upstream video command is routed by the wrapper, and the wrapper
+    // additionally owns two read-only commands (video-chapters, video-status)
+    // that project sidecar state and are intentionally NOT in the upstream matrix.
+    const upstreamVideo = videoGroup?.commands ?? [];
+    for (const command of upstreamVideo) {
+      expect(VIDEO_COMMANDS).toContain(command);
+    }
+    expect(VIDEO_COMMANDS).toContain("video-chapters");
+    expect(VIDEO_COMMANDS).toContain("video-status");
+    expect([...new Set(VIDEO_COMMANDS)]).toEqual([...VIDEO_COMMANDS]);
   });
 
   it("keeps close-like routing inside the upstream session group", () => {
@@ -66,9 +75,13 @@ describe("upstream command coverage", () => {
   });
 
   it("derives close-like scopes from a single source of truth", () => {
-    expect([...CLOSE_LIKE_COMMANDS].sort()).toEqual(
-      ["close", "close-all", "delete-data", "detach", "kill-all"],
-    );
+    expect([...CLOSE_LIKE_COMMANDS].sort()).toEqual([
+      "close",
+      "close-all",
+      "delete-data",
+      "detach",
+      "kill-all",
+    ]);
     // CWD-wide is exactly close-all; global is exactly kill-all.
     expect([...CWD_WIDE_CLOSE_LIKE_COMMANDS]).toEqual(["close-all"]);
     expect([...GLOBAL_CLOSE_LIKE_COMMANDS]).toEqual(["kill-all"]);

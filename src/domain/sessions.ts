@@ -1,5 +1,9 @@
 import type { ToonValue } from "../presenter/toon.js";
 import { isObject } from "../upstream/parse.js";
+import {
+  type BrowserDiscoveryDeps,
+  channelUsable,
+} from "./browserDiscovery.js";
 
 export interface SessionSummary {
   browsers: { count: number; empty?: string; rows: BrowserRow[] };
@@ -26,14 +30,12 @@ export interface ChannelSessionRow extends Record<string, ToonValue> {
   dataDir: string;
   extension: string;
   endpoint: string;
+  /** F-2: whether a browser for this channel is installed and drivable. */
+  usable: string;
 }
 
 /** Default (minimal) table schemas for list output. */
-export const BROWSER_TABLE_FIELDS = [
-  "id",
-  "name",
-  "status",
-] as const;
+export const BROWSER_TABLE_FIELDS = ["id", "name", "status"] as const;
 /** Every browser column the wrapper can capture from upstream. */
 export const BROWSER_TABLE_FIELDS_ALL = [
   "id",
@@ -58,6 +60,7 @@ export const CHANNEL_TABLE_FIELDS = [
   "dataDir",
   "extension",
   "endpoint",
+  "usable",
 ];
 
 /**
@@ -85,7 +88,15 @@ export interface CloseStatus {
   status: string;
 }
 
-export function normalizeSessions(value: unknown): SessionSummary {
+export interface NormalizeSessionsOptions {
+  /** Injectable discovery deps so `usable` is deterministic in tests. */
+  discovery?: BrowserDiscoveryDeps;
+}
+
+export function normalizeSessions(
+  value: unknown,
+  options: NormalizeSessionsOptions = {},
+): SessionSummary {
   if (!isObject(value)) return emptySessions();
   const browsers = Array.isArray(value.browsers) ? value.browsers : [];
   const servers = Array.isArray(value.servers) ? value.servers : [];
@@ -100,7 +111,9 @@ export function normalizeSessions(value: unknown): SessionSummary {
       "no attachable browser servers",
     ),
     channelSessions: rowsSummary(
-      channelSessions.map(normalizeChannelSession),
+      channelSessions.map((session, index) =>
+        normalizeChannelSession(session, index, options.discovery),
+      ),
       "no channel sessions",
     ),
   };
@@ -144,7 +157,7 @@ function emptySessions(): SessionSummary {
 
 function normalizeBrowser(browser: unknown, index: number): BrowserRow {
   if (!isObject(browser))
-  return { id: String(index + 1), name: "browser", status: "open" };
+    return { id: String(index + 1), name: "browser", status: "open" };
   return {
     id: stringField(browser, ["id", "browserId", "name"], String(index + 1)),
     name: stringField(browser, ["name", "browserName", "type"], "browser"),
@@ -157,7 +170,8 @@ function normalizeBrowser(browser: unknown, index: number): BrowserRow {
       browser.userDataDir === null || browser.userDataDir === undefined
         ? "<in-memory>"
         : stringField(browser, ["userDataDir", "dataDir"], "<in-memory>"),
-    headed: browser.headed === undefined ? "" : booleanField(browser, ["headed"]),
+    headed:
+      browser.headed === undefined ? "" : booleanField(browser, ["headed"]),
   };
 }
 
@@ -187,6 +201,7 @@ function normalizeServer(server: unknown, index: number): ServerRow {
 function normalizeChannelSession(
   session: unknown,
   index: number,
+  discovery?: BrowserDiscoveryDeps,
 ): ChannelSessionRow {
   if (!isObject(session))
     return {
@@ -194,12 +209,19 @@ function normalizeChannelSession(
       dataDir: "",
       extension: "unknown",
       endpoint: "no",
+      usable: "no",
     };
+  const channel = stringField(
+    session,
+    ["channel", "name", "id"],
+    String(index + 1),
+  );
   return {
-    channel: stringField(session, ["channel", "name", "id"], String(index + 1)),
+    channel,
     dataDir: stringField(session, ["userDataDir", "dataDir"], ""),
     extension: booleanField(session, ["extensionInstalled"]),
     endpoint: truthyField(session, ["endpoint"]),
+    usable: channelUsable(channel, discovery),
   };
 }
 
