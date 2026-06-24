@@ -432,7 +432,7 @@ function absolutizeResultPaths(
 ): ToonValue {
 	if (!base || typeof value !== "string") return value;
 	return value.replace(
-		/\]\(([^)]+)\)/g,
+		/\]\(([^)]*(?:\([^)]*\)[^)]*)*)\)/g,
 		(_m, p: string) => `](${resolveAgainst(p, base)})`,
 	);
 }
