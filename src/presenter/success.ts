@@ -13,6 +13,9 @@ interface ArtifactRow extends Record<string, ToonValue> {
   source: string;
 }
 
+const MAX_RESULT_DEPTH = 40;
+const ARTIFACT_SUMMARY_GROUP_IDS = new Set(["artifacts"]);
+
 export function commandSuccessModel(
   command: string,
   parsed: ParsedUpstream,
@@ -108,8 +111,11 @@ function familyResultModel(
   command: string,
   value: unknown,
 ): Record<string, ToonValue> {
+  const group = commandGroupFor(command);
   const result = toResultValue(value);
-  const artifacts = artifactRows(value);
+  const artifacts = ARTIFACT_SUMMARY_GROUP_IDS.has(group?.id ?? "")
+    ? artifactRows(value)
+    : [];
   const counts = arrayCounts(value);
   return {
     ...baseModel(command),
@@ -143,8 +149,9 @@ function artifactRows(
   value: unknown,
   source = "result",
   rows: ArtifactRow[] = [],
+  depth = 0,
 ): ArtifactRow[] {
-  if (rows.length >= 20) return rows;
+  if (rows.length >= 20 || depth > MAX_RESULT_DEPTH) return rows;
   if (typeof value === "string") {
     const type = artifactType(value);
     if (type) rows.push({ path: value, type, source });
@@ -152,13 +159,13 @@ function artifactRows(
   }
   if (Array.isArray(value)) {
     value.forEach((entry, index) =>
-      artifactRows(entry, `${source}[${index}]`, rows),
+      artifactRows(entry, `${source}[${index}]`, rows, depth + 1),
     );
     return rows;
   }
   if (isObject(value)) {
     for (const [key, child] of Object.entries(value))
-      artifactRows(child, `${source}.${key}`, rows);
+      artifactRows(child, `${source}.${key}`, rows, depth + 1);
   }
   return rows;
 }
@@ -180,16 +187,18 @@ function toResultValue(value: unknown): ToonValue {
   return String(value);
 }
 
-function pruneJson(value: Record<string, unknown>): ToonValue {
+function pruneJson(value: Record<string, unknown>, depth = 0): ToonValue {
+  if (depth > MAX_RESULT_DEPTH) return "[max-depth]";
   const output: Record<string, ToonValue> = {};
   for (const [key, child] of Object.entries(value)) {
     if (key === "isError") continue;
-    output[key] = simpleValue(child);
+    output[key] = simpleValue(child, depth + 1);
   }
   return output;
 }
 
-function simpleValue(value: unknown): ToonValue {
+function simpleValue(value: unknown, depth = 0): ToonValue {
+  if (depth > MAX_RESULT_DEPTH) return "[max-depth]";
   if (
     typeof value === "string" ||
     typeof value === "number" ||
@@ -198,7 +207,7 @@ function simpleValue(value: unknown): ToonValue {
   )
     return value;
   if (Array.isArray(value))
-    return value.map((entry) => simpleValue(entry)) as ToonValue;
-  if (isObject(value)) return pruneJson(value);
+    return value.map((entry) => simpleValue(entry, depth + 1)) as ToonValue;
+  if (isObject(value)) return pruneJson(value, depth + 1);
   return String(value);
 }

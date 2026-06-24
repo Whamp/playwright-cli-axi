@@ -265,7 +265,7 @@ function videoSuccessModel(
   parsed: ReturnType<typeof parseUpstreamOutput>,
 ): ToonValue {
   if (command === "video-stop") {
-    const artifacts = classifyVideoArtifacts(state.lastFiles);
+    const artifacts = extractVideoArtifacts(parsed);
     return {
       command,
       status: "ok",
@@ -274,8 +274,8 @@ function videoSuccessModel(
         stoppedAt: state.recording.stoppedAt ?? "",
       },
       files: {
-        count: state.lastFiles.length,
-        ...(state.lastFiles.length === 0
+        count: artifacts.all.length,
+        ...(artifacts.all.length === 0
           ? {
               empty: noVideosRecorded(parsed)
                 ? "upstream reported no videos were recorded"
@@ -299,7 +299,7 @@ function videoSuccessModel(
       ...(artifacts.otherArtifacts.length > 0
         ? { other_artifact_files: artifacts.otherArtifacts }
         : {}),
-      ...(state.lastFiles.length > 0 ? { last_files: state.lastFiles } : {}),
+      ...(artifacts.all.length > 0 ? { last_files: artifacts.all } : {}),
     };
   }
   if (command === "video-chapter") {

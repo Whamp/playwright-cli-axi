@@ -7,6 +7,10 @@ import {
   stripJsonFlags,
 } from "../domain/commandSurface.js";
 import { normalizeSessions } from "../domain/sessions.js";
+import {
+  closeScopeFor,
+  isCloseLikeCommand,
+} from "../domain/upstreamCommands.js";
 import { handleVideoCommand } from "../domain/videoCommands.js";
 import {
   createVideoStore,
@@ -65,14 +69,7 @@ export async function runCli(
       now: deps.now,
     });
   }
-  if (
-    command === "close" ||
-    command === "close-all" ||
-    command === "kill-all" ||
-    command === "delete-data"
-  ) {
-    return await runCloseLikeCommand(argv, deps);
-  }
+  if (isCloseLikeCommand(command)) return await runCloseLikeCommand(argv, deps);
   return await runGenericCommand(argv, deps);
 }
 
@@ -162,10 +159,13 @@ async function runCloseLikeCommand(
 ): Promise<CliResult> {
   const store = createVideoStore({ ...deps, session: sessionFromArgv(argv) });
   const command = commandName(argv) ?? argv[0] ?? "command";
+  const scope = closeScopeFor(command);
   const priorStates =
-    command === "close-all" || command === "kill-all"
-      ? await store.loadAllForCwd()
-      : [{ path: store.path, state: await store.load() }];
+    scope === "global"
+      ? await store.loadAll()
+      : scope === "cwd"
+        ? await store.loadAllForCwd()
+        : [{ path: store.path, state: await store.load() }];
   const run = await deps.upstream(argv);
   const parsed = parseUpstreamOutput(run.stdout, run.stderr, run.exitCode);
   if (parsed.isError || run.exitCode !== 0)

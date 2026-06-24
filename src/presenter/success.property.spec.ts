@@ -71,6 +71,37 @@ describe("commandSuccessModel properties", () => {
     );
   });
 
+  it("preserves every hostile JSON key in the generic result model", () => {
+    fc.assert(
+      fc.property(
+        fc.dictionary(fc.string({ minLength: 1, maxLength: 16 }), fc.jsonValue(), {
+          maxKeys: 6,
+        }),
+        (value) => {
+          const model = commandSuccessModel("config-print", parsedJson(value)) as {
+            command: string;
+            status: string;
+            result: Record<string, ToonValue>;
+          };
+          const expectedKeys = Object.keys(value).filter(
+            (key) => key !== "isError",
+          );
+
+          // pruneJson must not drop or rename hostile keys; only isError is pruned
+          expect(Object.keys(model.result).sort()).toEqual(
+            [...new Set(expectedKeys)].sort(),
+          );
+          const output = toToon(model);
+          expect(model.command).toBe("config-print");
+          expect(model.status).toBe("ok");
+          expect(output).not.toContain("\r");
+          expect(output.endsWith("\n")).toBe(false);
+        },
+      ),
+      propertyOptions,
+    );
+  });
+
   it("reports list counts and empty state from generated upstream browser arrays", () => {
     fc.assert(
       fc.property(

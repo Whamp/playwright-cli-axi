@@ -142,13 +142,15 @@ tests until they are assigned to a wrapper command family.
 | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Browser sessions       | `open`, `attach`, `close`, `detach`, `delete-data`, `list`, `close-all`, `kill-all`                                                                                           |
 | Page interaction       | `goto`, `type`, `click`, `dblclick`, `fill`, `drag`, `drop`, `hover`, `select`, `upload`, `check`, `uncheck`, `snapshot`, `eval`, `dialog-accept`, `dialog-dismiss`, `resize` |
-| Navigation / input     | `go-back`, `go-forward`, `reload`, `press`, `keydown`, `keyup`, `mousemove`, `mousedown`, `mouseup`, `mousewheel`                                                             |
+| Navigation             | `go-back`, `go-forward`, `reload`                                                                                                                                             |
+| Keyboard               | `press`, `keydown`, `keyup`                                                                                                                                                   |
+| Mouse                  | `mousemove`, `mousedown`, `mouseup`, `mousewheel`                                                                                                                             |
 | Artifacts              | `screenshot`, `pdf`, `request-headers`, `request-body`, `response-headers`, `response-body`, `tracing-start`, `tracing-stop`                                                  |
 | Tabs                   | `tab-list`, `tab-new`, `tab-close`, `tab-select`                                                                                                                              |
-| Storage                | `state-load`, `state-save`, cookies, localStorage, and sessionStorage CRUD commands                                                                                           |
+| Storage                | `state-load`, `state-save`, `cookie-list`, `cookie-get`, `cookie-set`, `cookie-delete`, `cookie-clear`, `localstorage-list`, `localstorage-get`, `localstorage-set`, `localstorage-delete`, `localstorage-clear`, `sessionstorage-list`, `sessionstorage-get`, `sessionstorage-set`, `sessionstorage-delete`, `sessionstorage-clear` |
 | Network                | `requests`, `request`, `route`, `route-list`, `unroute`, `network-state-set`                                                                                                  |
-| DevTools / diagnostics | `console`, `run-code`, `show`, `pause-at`, `resume`, `step-over`, `generate-locator`, `highlight`, `tray`                                                                     |
-| Install / config       | `install`, `install-browser`, `config-print`                                                                                                                                  |
+| DevTools and diagnostics | `console`, `run-code`, `show`, `pause-at`, `resume`, `step-over`, `generate-locator`, `highlight`, `tray`                                                                     |
+| Install and config     | `install`, `install-browser`, `config-print`                                                                                                                                  |
 | Video                  | `video-start`, `video-stop`, `video-chapter`, `video-show-actions`, `video-hide-actions`                                                                                      |
 
 ## Video support
@@ -238,10 +240,17 @@ Sidecar facts include:
 
 The sidecar is last-known wrapper state, not authoritative upstream state. The
 home view reconciles active sidecar recordings against `list --all`; if no live
-browser is present it marks the state `stale`. Successful `close`, `close-all`,
-`kill-all`, or `delete-data` while sidecar recording is active emits a warning
-and marks the recording `abandoned` because closing without `video-stop` may lose
-the file. The home view includes recent sidecar details such as requested
+browser is present it marks the state `stale`. Successful session-terminating
+commands while a sidecar recording is active emit a warning and mark the
+recording `abandoned` because closing without `video-stop` may lose the file.
+The abandonment scope is derived from a single close-like command registry:
+
+- `close`, `detach`, `delete-data` abandon only the resolved session's sidecar
+- `close-all` abandons every sidecar in the current working directory
+- `kill-all` abandons every sidecar across the whole state directory, because
+  upstream `kill-all` SIGKILLs daemon processes regardless of working directory
+
+The home view includes recent sidecar details such as requested
 file/size, timestamps, and recent reported files when they exist.
 
 ## Error handling
@@ -310,10 +319,12 @@ The project uses custom arbitraries in `src/test/arbitraries.ts` to generate:
 - TOON values and tables for rendering invariants
 - Shared video recording status, overlay status, and size generators used by video-state and video-command model tests
 
-Run only property-based tests with `npm run test:prop`. If fast-check reports a
-failure, copy the printed `seed` and `path` into the failing `fc.assert` options
-(for example `{ ...propertyOptions, seed: 123, path: "4:2" }`) to replay the
-minimal counterexample locally.
+Run only property-based tests with `npm run test:prop`. This is a fast loop for
+`describe(...properties...)` specs; run `npm test` before handoff because the
+whole-surface help drift and generated-skill sync guards are example-based specs.
+If fast-check reports a failure, copy the printed `seed` and `path` into the
+failing `fc.assert` options (for example `{ ...propertyOptions, seed: 123, path:
+"4:2" }`) to replay the minimal counterexample locally.
 
 When adding new features, consider writing property tests for:
 

@@ -2,10 +2,17 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import { VIDEO_COMMANDS } from "./commandSurface.js";
 import {
+  CLOSE_LIKE_COMMANDS,
+  CLOSE_LIKE_COMMAND_SCOPES,
   COMMAND_GROUPS,
+  CWD_WIDE_CLOSE_LIKE_COMMANDS,
+  GLOBAL_CLOSE_LIKE_COMMANDS,
   UPSTREAM_COMMANDS,
+  closeScopeFor,
   commandGroupFor,
+  isCloseLikeCommand,
 } from "./upstreamCommands.js";
 
 describe("upstream command coverage", () => {
@@ -40,5 +47,52 @@ describe("upstream command coverage", () => {
         expect(commandGroupFor(command)).toBe(group);
       }
     }
+  });
+
+  it("keeps video command routing and command-matrix metadata in sync", () => {
+    const videoGroup = COMMAND_GROUPS.find((group) => group.id === "video");
+
+    expect(videoGroup?.commands).toEqual(VIDEO_COMMANDS);
+  });
+
+  it("keeps close-like routing inside the upstream session group", () => {
+    const sessionGroup = COMMAND_GROUPS.find((group) => group.id === "session");
+    const sessionCommands = [...(sessionGroup?.commands ?? [])];
+
+    for (const command of CLOSE_LIKE_COMMANDS) {
+      expect(sessionCommands.includes(command)).toBe(true);
+      expect(isCloseLikeCommand(command)).toBe(true);
+    }
+  });
+
+  it("derives close-like scopes from a single source of truth", () => {
+    expect([...CLOSE_LIKE_COMMANDS].sort()).toEqual(
+      ["close", "close-all", "delete-data", "detach", "kill-all"],
+    );
+    // CWD-wide is exactly close-all; global is exactly kill-all.
+    expect([...CWD_WIDE_CLOSE_LIKE_COMMANDS]).toEqual(["close-all"]);
+    expect([...GLOBAL_CLOSE_LIKE_COMMANDS]).toEqual(["kill-all"]);
+    for (const command of CWD_WIDE_CLOSE_LIKE_COMMANDS)
+      expect(CLOSE_LIKE_COMMANDS.includes(command)).toBe(true);
+    for (const command of GLOBAL_CLOSE_LIKE_COMMANDS)
+      expect(CLOSE_LIKE_COMMANDS.includes(command)).toBe(true);
+
+    expect(closeScopeFor("close")).toBe("session");
+    expect(closeScopeFor("detach")).toBe("session");
+    expect(closeScopeFor("delete-data")).toBe("session");
+    expect(closeScopeFor("close-all")).toBe("cwd");
+    expect(closeScopeFor("kill-all")).toBe("global");
+
+    // detach terminates the owning session, so it is close-like but session-scoped.
+    expect(isCloseLikeCommand("detach")).toBe(true);
+    expect(isCloseLikeCommand("open")).toBe(false);
+    expect(closeScopeFor("open")).toBeUndefined();
+    expect(closeScopeFor(undefined)).toBeUndefined();
+
+    // every declared scope is represented by at least one command
+    const usedScopes = new Set(Object.values(CLOSE_LIKE_COMMAND_SCOPES));
+    expect(usedScopes.has("session")).toBe(true);
+    expect(usedScopes.has("cwd")).toBe(true);
+    expect(usedScopes.has("global")).toBe(true);
   });
 });

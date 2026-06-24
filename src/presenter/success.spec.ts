@@ -125,6 +125,23 @@ describe("commandSuccessModel", () => {
     expect(output).toContain("result:");
   });
 
+  it("should not add artifact summaries for non-artifact command families", () => {
+    // Arrange
+    const parsed = {
+      kind: "json",
+      value: { configFile: "./playwright.config.json" },
+      isError: false,
+    } as const;
+
+    // Act
+    const output = toToon(commandSuccessModel("config-print", parsed));
+
+    // Assert
+    expect(output).toContain("family:\n  id: install");
+    expect(output).not.toContain("artifacts[");
+    expect(output).toContain("configFile: ./playwright.config.json");
+  });
+
   it("should prune transport-only JSON fields from generic command results", () => {
     // Arrange
     const parsed = {
@@ -148,6 +165,41 @@ describe("commandSuccessModel", () => {
     expect(output).toContain("method: GET");
     expect(output).toContain("headers[1]:");
     expect(output).not.toContain("isError");
+  });
+
+  it("should quote hostile upstream JSON keys without throwing", () => {
+    // Arrange
+    const parsed = {
+      kind: "json",
+      value: { "bad\rkey": { "bad:key": true } },
+      isError: false,
+    } as const;
+
+    // Act
+    const output = toToon(commandSuccessModel("config-print", parsed));
+
+    // Assert
+    expect(output).toContain('"bad\\rkey":');
+    expect(output).toContain('"bad:key": true');
+    expect(output).not.toContain("\r");
+  });
+
+  it("should cap deeply nested generic JSON results", () => {
+    // Arrange
+    const value: Record<string, unknown> = {};
+    let cursor = value;
+    for (let index = 0; index < 60; index += 1) {
+      const next: Record<string, unknown> = {};
+      cursor.child = next;
+      cursor = next;
+    }
+    const parsed = { kind: "json", value, isError: false } as const;
+
+    // Act
+    const output = toToon(commandSuccessModel("request", parsed));
+
+    // Assert
+    expect(output).toContain("[max-depth]");
   });
 
   it("should stringify primitive JSON results for generic commands", () => {

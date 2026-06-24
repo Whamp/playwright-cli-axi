@@ -20,4 +20,15 @@ describe('toToon', () => {
     expect(output.endsWith('\n')).toBe(false);
     expect(output.split('\n').some((line) => /\s$/.test(line))).toBe(false);
   });
+
+  it('should render nested object array rows without sibling ambiguity', () => {
+    // Arrange
+    const value = { result: [{ nested: { url: 'https://example.com' }, id: 1 }] };
+
+    // Act
+    const output = toToon(value);
+
+    // Assert
+    expect(output).toContain('result[1]:\n  -\n    nested:\n      url: "https://example.com"\n    id: 1');
+  });
 });

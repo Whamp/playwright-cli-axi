@@ -57,6 +57,10 @@ class MemoryVideoStore implements VideoStore {
     return [{ path: this.path, state: await this.load() }];
   }
 
+  async loadAll() {
+    return [{ path: this.path, state: await this.load() }];
+  }
+
   async save(state: VideoSidecarState): Promise<void> {
     this.#state = structuredClone(state);
   }
@@ -213,6 +217,16 @@ describe("videoCommands properties", () => {
       ),
       propertyOptions,
     );
+  });
+
+  it("keeps video labels and WebM extensions in the video artifact bucket", () => {
+    const artifacts = extractVideoArtifacts(
+      parsedText("[Video](./trace.zip)\n[Trace](./movie.webm)"),
+    );
+
+    expect(artifacts.videos).toEqual(["./trace.zip", "./movie.webm"]);
+    expect(artifacts.otherArtifacts).toEqual([]);
+    expect(artifacts.all).toEqual(["./trace.zip", "./movie.webm"]);
   });
 
   it("keeps generated successful command sequences consistent with a simple video-state model", async () => {

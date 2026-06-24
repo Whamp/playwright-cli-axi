@@ -42,8 +42,15 @@ describe("whole-surface help coverage", () => {
       expect(result.stdout, command).toContain(`command: ${command}`);
       if (videoCommands.has(command)) {
         expect(upstreamCalls, command).toHaveLength(before);
+        expect(result.stdout, command).toContain("usage:");
+        expect(result.stdout, command).toContain(`playwright-cli-axi ${command}`);
+        expect(result.stdout, command).toContain("examples[");
       } else {
         expect(upstreamCalls.at(-1), command).toEqual([command, "--help"]);
+        expect(result.stdout, command).toContain("help:");
+        expect(result.stdout, command).toContain("source: @playwright/cli");
+        expect(result.stdout, command).toContain("bytes:");
+        expect(result.stdout, command).toContain("lines[2]:");
       }
     }
   });

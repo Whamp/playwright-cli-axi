@@ -166,6 +166,60 @@ export const UPSTREAM_COMMANDS: readonly string[] = COMMAND_GROUPS.flatMap(
   (group) => group.commands,
 );
 
+export type CloseScope = "session" | "cwd" | "global";
+
+/**
+ * Single source of truth for close-like commands and the scope at which each
+ * one abandons active recordings. CLOSE_LIKE_COMMANDS, the cwd/global subsets,
+ * the predicates, and the CLI router all derive from this map; do not
+ * duplicate these commands in parallel arrays elsewhere.
+ *
+ * - "session" abandons only the sidecar for the resolved session (close,
+ *   detach, delete-data)
+ * - "cwd" abandons every sidecar in the current working directory (close-all)
+ * - "global" abandons every sidecar across the whole state directory, because
+ *   upstream kill-all SIGKILLs daemon processes regardless of cwd (kill-all)
+ */
+export const CLOSE_LIKE_COMMAND_SCOPES = {
+  close: "session",
+  detach: "session",
+  "delete-data": "session",
+  "close-all": "cwd",
+  "kill-all": "global",
+} as const satisfies Readonly<Record<string, CloseScope>>;
+
+export type CloseLikeCommand = keyof typeof CLOSE_LIKE_COMMAND_SCOPES;
+
+export const CLOSE_LIKE_COMMANDS: readonly CloseLikeCommand[] = Object.keys(
+  CLOSE_LIKE_COMMAND_SCOPES,
+) as CloseLikeCommand[];
+
+export const CWD_WIDE_CLOSE_LIKE_COMMANDS: readonly CloseLikeCommand[] =
+  CLOSE_LIKE_COMMANDS.filter(
+    (command) => CLOSE_LIKE_COMMAND_SCOPES[command] === "cwd",
+  );
+
+export const GLOBAL_CLOSE_LIKE_COMMANDS: readonly CloseLikeCommand[] =
+  CLOSE_LIKE_COMMANDS.filter(
+    (command) => CLOSE_LIKE_COMMAND_SCOPES[command] === "global",
+  );
+
+export function isCloseLikeCommand(
+  command: string | undefined,
+): command is CloseLikeCommand {
+  return (
+    command !== undefined &&
+    Object.prototype.hasOwnProperty.call(CLOSE_LIKE_COMMAND_SCOPES, command)
+  );
+}
+
+export function closeScopeFor(
+  command: string | undefined,
+): CloseScope | undefined {
+  if (!isCloseLikeCommand(command)) return undefined;
+  return CLOSE_LIKE_COMMAND_SCOPES[command];
+}
+
 export function commandGroupFor(command: string): CommandGroup | undefined {
   return COMMAND_GROUPS.find((group) =>
     (group.commands as readonly string[]).includes(command),

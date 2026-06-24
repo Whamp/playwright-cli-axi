@@ -39,8 +39,10 @@ function encodeRoot(value: ToonValue): string[] {
 
 function encodeNamed(key: string, value: ToonValue, indent: number): string[] {
   const prefix = " ".repeat(indent);
+  const name = formatKey(key);
   if (isTable(value)) {
-    const header = `${prefix}${key}[${value.rows.length}]{${value.fields.join(",")}}:`;
+    const fields = value.fields.map(formatKey);
+    const header = `${prefix}${name}[${value.rows.length}]{${fields.join(",")}}:`;
     const rows = value.rows.map(
       (row) =>
         `${" ".repeat(indent + 2)}${value.fields.map((field) => formatScalar(scalarOrNull(row[field]) ?? "")).join(",")}`,
@@ -48,7 +50,7 @@ function encodeNamed(key: string, value: ToonValue, indent: number): string[] {
     return [header, ...rows];
   }
   if (Array.isArray(value)) {
-    const lines = [`${prefix}${key}[${value.length}]:`];
+    const lines = [`${prefix}${name}[${value.length}]:`];
     for (const item of value) {
       if (isPlainObject(item)) {
         const entries = Object.entries(item);
@@ -59,14 +61,16 @@ function encodeNamed(key: string, value: ToonValue, indent: number): string[] {
         const [firstKey, firstValue] = entries[0]!;
         if (isScalar(firstValue as ToonValue)) {
           lines.push(
-            `${" ".repeat(indent + 2)}- ${firstKey}: ${formatScalar(scalarOrNull(firstValue as ToonValue))}`,
+            `${" ".repeat(indent + 2)}- ${formatKey(firstKey)}: ${formatScalar(scalarOrNull(firstValue as ToonValue))}`,
           );
+          for (const [childKey, childValue] of entries.slice(1)) {
+            lines.push(...encodeNamed(childKey, childValue, indent + 4));
+          }
         } else {
-          lines.push(`${" ".repeat(indent + 2)}- ${firstKey}:`);
-          lines.push(...encodeNested(firstValue as ToonValue, indent + 4));
-        }
-        for (const [childKey, childValue] of entries.slice(1)) {
-          lines.push(...encodeNamed(childKey, childValue, indent + 4));
+          lines.push(`${" ".repeat(indent + 2)}-`);
+          for (const [childKey, childValue] of entries) {
+            lines.push(...encodeNamed(childKey, childValue, indent + 4));
+          }
         }
       } else {
         lines.push(
@@ -78,29 +82,17 @@ function encodeNamed(key: string, value: ToonValue, indent: number): string[] {
   }
   if (isPlainObject(value)) {
     const entries = Object.entries(value);
-    if (entries.length === 0) return [`${prefix}${key}: {}`];
+    if (entries.length === 0) return [`${prefix}${name}: {}`];
     return [
-      `${prefix}${key}:`,
+      `${prefix}${name}:`,
       ...entries.flatMap(([childKey, childValue]) =>
         encodeNamed(childKey, childValue, indent + 2),
       ),
     ];
   }
   return [
-    `${prefix}${key}: ${formatScalar(value as string | number | boolean | null)}`,
+    `${prefix}${name}: ${formatScalar(value as string | number | boolean | null)}`,
   ];
-}
-
-function encodeNested(value: ToonValue, indent: number): string[] {
-  if (Array.isArray(value)) return encodeNamed("items", value, indent);
-  if (isPlainObject(value)) {
-    const entries = Object.entries(value);
-    if (entries.length === 0) return [`${" ".repeat(indent)}{}`];
-    return entries.flatMap(([childKey, childValue]) =>
-      encodeNamed(childKey, childValue, indent),
-    );
-  }
-  return [`${" ".repeat(indent)}${formatScalar(scalarOrNull(value))}`];
 }
 
 function isScalar(value: ToonValue): boolean {
@@ -110,6 +102,11 @@ function isScalar(value: ToonValue): boolean {
     typeof value === "number" ||
     typeof value === "boolean"
   );
+}
+
+function formatKey(key: string): string {
+  if (/^[A-Za-z_][A-Za-z0-9_-]*$/.test(key)) return key;
+  return quote(key);
 }
 
 function formatScalar(value: string | number | boolean | null): string {
@@ -182,6 +179,6 @@ function assertInvariants(output: string): void {
     throw new Error("TOON output must not end with a trailing newline");
   for (const line of output.split("\n")) {
     if (/\s$/.test(line))
-      throw new Error(`TOON output has trailing whitespace: ${line}`);
+      throw new Error("TOON output has trailing whitespace");
   }
 }

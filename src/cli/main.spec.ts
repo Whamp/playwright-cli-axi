@@ -1,10 +1,20 @@
 import { mkdtemp, readFile, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 import { runCli } from "./main.js";
 
+import {
+  createVideoStore,
+  type VideoSidecarState,
+} from "../domain/videoState.js";
+
+import {
+  CLOSE_LIKE_COMMANDS,
+  COMMAND_GROUPS,
+  commandMatrixRows,
+} from "../domain/upstreamCommands.js";
 import type { CliDependencies } from "./main.js";
 import type { UpstreamRun } from "../upstream/runner.js";
 
@@ -305,6 +315,28 @@ describe("runCli", () => {
     expect(state.lastFiles).toEqual(["./out.webm", "./trace.zip"]);
   });
 
+  it("should preserve labeled video artifact classification after video-stop", async () => {
+    // Arrange
+    const harness = await createHarness([
+      { stdout: "Video recording started." },
+      { stdout: "- [Video](./archive.zip)\n- [Trace](./movie.webm)" },
+    ]);
+    await harness.run(["video-start", "./movie.webm"]);
+
+    // Act
+    const result = await harness.run(["video-stop"]);
+
+    // Assert
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("videos:\n  count: 2");
+    expect(result.stdout).toContain(
+      "video_files[2]:\n  - ./archive.zip\n  - ./movie.webm",
+    );
+    expect(result.stdout).toContain("other_artifacts:\n  count: 0");
+    const state = await harness.readState();
+    expect(state.lastFiles).toEqual(["./archive.zip", "./movie.webm"]);
+  });
+
   it("should record an explicit no-files state when video-stop reports no recordings", async () => {
     // Arrange
     const harness = await createHarness([
@@ -407,25 +439,34 @@ describe("runCli", () => {
     );
   });
 
-  it("should warn and mark recording abandoned after successful close while recording", async () => {
-    // Arrange
-    const harness = await createHarness([
-      { stdout: "Video recording started." },
-      { stdout: '{"closed":[]}' },
-    ]);
-    await harness.run(["video-start", "./lost.webm"]);
+  for (const command of CLOSE_LIKE_COMMANDS) {
+    it(`should warn and mark recording abandoned after successful ${command} while recording`, async () => {
+      // Arrange
+      const upstreamOutput = {
+        close: '{"session":"default","status":"closed"}',
+        detach: '{"session":"default","status":"detached"}',
+        "close-all": '{"closed":[]}',
+        "kill-all": '{"killed":0,"pids":[]}',
+        "delete-data": '{"session":"default","deleted":true}',
+      }[command];
+      const harness = await createHarness([
+        { stdout: "Video recording started." },
+        { stdout: upstreamOutput },
+      ]);
+      await harness.run(["video-start", "./lost.webm"]);
 
-    // Act
-    const result = await harness.run(["close-all"]);
+      // Act
+      const result = await harness.run([command]);
 
-    // Assert
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain(
-      "warnings[1]:\n  - Recording was active before close-all; video may be lost because video-stop was not run",
-    );
-    const state = await harness.readState();
-    expect(state.recording.status).toBe("abandoned");
-  });
+      // Assert
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain(
+        `warnings[1]:\n  - Recording was active before ${command}; video may be lost because video-stop was not run`,
+      );
+      const state = await harness.readState();
+      expect(state.recording.status).toBe("abandoned");
+    });
+  }
 
   it("should have close-all warn and abandon active recordings from named session sidecars", async () => {
     // Arrange
@@ -448,6 +489,69 @@ describe("runCli", () => {
     expect(state.recording.status).toBe("abandoned");
   });
 
+  for (const command of ["close", "delete-data"]) {
+    it(`should not abandon recordings in other sessions after session-scoped ${command}`, async () => {
+      // Arrange: a recording active in the "other" session; run the
+      // session-scoped command against the default session.
+      const upstreamOutput =
+        command === "close"
+          ? '{"session":"default","status":"closed"}'
+          : '{"session":"default","deleted":true}';
+      const harness = await createHarness([
+        { stdout: "Video recording started." },
+        { stdout: upstreamOutput },
+      ]);
+      await harness.run(["video-start", "--session", "other", "./lost.webm"]);
+
+      // Act
+      const result = await harness.run([command]);
+
+      // Assert
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).not.toContain("warnings[");
+      const states = await harness.readStates();
+      const other = states.find((state) => state.scope.session === "other");
+      expect(other?.recording.status).toBe("active");
+    });
+  }
+
+  it("should abandon active recordings across every working directory after kill-all", async () => {
+    // Arrange: a recording active in a different working directory that shares
+    // the wrapper state directory. kill-all is global because upstream
+    // killAllDaemons() SIGKILLs daemon processes regardless of cwd.
+    const harness = await createHarness([{ stdout: '{"killed":0,"pids":[]}' }]);
+    const stateRoot = dirname(harness.cwd);
+    const otherStore = createVideoStore({
+      cwd: join(stateRoot, "other-workspace"),
+      env: {
+        XDG_STATE_HOME: join(stateRoot, "state"),
+        HOME: "/home/will",
+      },
+      now: () => new Date("2026-06-22T12:00:00.000Z"),
+      session: "remote",
+    });
+    const base = await otherStore.load();
+    await otherStore.save({
+      ...base,
+      recording: {
+        ...base.recording,
+        status: "active",
+        requestedFile: "./other.webm",
+      },
+    });
+
+    // Act
+    const result = await harness.run(["kill-all"]);
+
+    // Assert
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain(
+      "Recording was active for session remote before kill-all; video may be lost because video-stop was not run",
+    );
+    const after = await otherStore.load();
+    expect(after.recording.status).toBe("abandoned");
+  });
+
   it("should render root help with a whole-surface command matrix", async () => {
     // Arrange
     const harness = await createHarness([]);
@@ -457,13 +561,20 @@ describe("runCli", () => {
 
     // Assert
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("command_groups[");
-    expect(result.stdout).toContain("Storage");
-    expect(result.stdout).toContain("cookie-list");
-    expect(result.stdout).toContain("Network");
-    expect(result.stdout).toContain("route-list");
-    expect(result.stdout).toContain("Video");
-    expect(result.stdout).toContain("video-start");
+    expect(result.stdout).toContain(
+      "command_groups[12]{group,commands,summary}:",
+    );
+    for (const row of commandMatrixRows()) {
+      expect(result.stdout).toContain(row.group);
+      expect(result.stdout).toContain(row.commands);
+      expect(result.stdout).toContain(row.summary);
+    }
+    // every command in every group is rendered in the joined-commands cell
+    for (const group of COMMAND_GROUPS) {
+      for (const command of group.commands) {
+        expect(result.stdout).toContain(command);
+      }
+    }
   });
 
   it("should render concise structured help for video commands", async () => {
@@ -559,6 +670,15 @@ async function createHarness(fakeRuns: FakeRun[]) {
         files[0]!,
       );
       return JSON.parse(await readFile(statePath, "utf8"));
+    },
+    async readStates(): Promise<VideoSidecarState[]> {
+      const files = await this.stateFiles();
+      const states: VideoSidecarState[] = [];
+      for (const file of files) {
+        const statePath = join(stateRoot, "state", "playwright-cli-axi", file);
+        states.push(JSON.parse(await readFile(statePath, "utf8")));
+      }
+      return states;
     },
   };
 }

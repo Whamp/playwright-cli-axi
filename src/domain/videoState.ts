@@ -31,6 +31,7 @@ export interface VideoStateRecord {
 export interface VideoStore {
   load(): Promise<VideoSidecarState>;
   loadAllForCwd(): Promise<VideoStateRecord[]>;
+  loadAll(): Promise<VideoStateRecord[]>;
   save(state: VideoSidecarState): Promise<void>;
   path: string;
 }
@@ -59,29 +60,10 @@ export function createVideoStore(options: VideoStoreOptions): VideoStore {
       }
     },
     async loadAllForCwd() {
-      let entries: string[];
-      try {
-        entries = await readdir(directory);
-      } catch {
-        return [];
-      }
-
-      const records: VideoStateRecord[] = [];
-      for (const entry of entries) {
-        if (!entry.endsWith('.json')) continue;
-        const fileKey = entry.slice(0, -'.json'.length);
-        if (!/^[a-f0-9]{16}$/.test(fileKey)) continue;
-        const recordPath = join(directory, entry);
-        try {
-          const raw = JSON.parse(await readFile(recordPath, 'utf8')) as Partial<VideoSidecarState>;
-          const scope = isScope(raw.scope) ? raw.scope : undefined;
-          if (!scope || scope.cwd !== options.cwd) continue;
-          records.push({ path: recordPath, state: mergeState(raw, options.cwd, fileKey, scope.session) });
-        } catch {
-          // Ignore corrupt or concurrently replaced sidecars; the current command should still preserve upstream behavior.
-        }
-      }
-      return records;
+      return readSidecarRecords(directory, (scope) => scope.cwd === options.cwd);
+    },
+    async loadAll() {
+      return readSidecarRecords(directory, () => true);
     },
     async save(state) {
       const targetPath = statePath(directory, state.scope.key || key);
@@ -128,6 +110,35 @@ function mergeState(state: Partial<VideoSidecarState>, cwd: string, key: string,
 
 function createScopeKey(cwd: string, session: string): string {
   return createHash('sha256').update(`${cwd}\0${session}`).digest('hex').slice(0, 16);
+}
+
+async function readSidecarRecords(
+  directory: string,
+  matches: (scope: VideoSidecarState['scope']) => boolean,
+): Promise<VideoStateRecord[]> {
+  let entries: string[];
+  try {
+    entries = await readdir(directory);
+  } catch {
+    return [];
+  }
+
+  const records: VideoStateRecord[] = [];
+  for (const entry of entries) {
+    if (!entry.endsWith('.json')) continue;
+    const fileKey = entry.slice(0, -'.json'.length);
+    if (!/^[a-f0-9]{16}$/.test(fileKey)) continue;
+    const recordPath = join(directory, entry);
+    try {
+      const raw = JSON.parse(await readFile(recordPath, 'utf8')) as Partial<VideoSidecarState>;
+      const scope = isScope(raw.scope) ? raw.scope : undefined;
+      if (!scope || !matches(scope)) continue;
+      records.push({ path: recordPath, state: mergeState(raw, scope.cwd, fileKey, scope.session) });
+    } catch {
+      // Ignore corrupt or concurrently replaced sidecars; the current command should still preserve upstream behavior.
+    }
+  }
+  return records;
 }
 
 function stateHome(env: Record<string, string | undefined>): string {
