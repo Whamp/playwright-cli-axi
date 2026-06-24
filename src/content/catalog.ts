@@ -1,42 +1,42 @@
 import { COMMAND_GROUPS } from "../domain/upstreamCommands.js";
 
 export const CATALOG = {
-	binary: "playwright-cli-axi",
-	description:
-		"AXI-friendly Playwright browser control with TOON output and video state",
-	npxBinary: "npx -y playwright-cli-axi",
-	next: [
-		"playwright-cli-axi open https://example.com",
-		"playwright-cli-axi list --all",
-		"playwright-cli-axi video-start ./recording.webm --size 800x600",
-		"playwright-cli-axi video-stop",
-		"playwright-cli-axi --help",
-	] as string[],
-	videoCommands: {
-		"video-start":
-			"Start recording the current browser session to an optional WebM file.",
-		"video-stop":
-			"Stop recording and report typed video artifacts returned by upstream.",
-		"video-chapter": "Add a title card marker to the recording timeline.",
-		"video-chapters":
-			"Read the recorded chapter manifest with seek offsets (no sidecar parsing).",
-		"video-status":
-			"Print the full recording summary: status, files, chapters, actions, warnings.",
-		"video-show-actions":
-			"Overlay subsequent action names and target highlights on the page.",
-		"video-hide-actions": "Stop overlaying action callouts on the page.",
-	},
-	commandGroups: COMMAND_GROUPS,
-	wrapperCommands: {
-		setup:
-			"Install/repair the SessionStart hook so agent sessions start with live browser and video context.",
-		context:
-			"Print the token-budgeted session-start context slice (invoked by the hook).",
-		scroll:
-			"Scroll the page: --to <ref> (scrollIntoView), --top, --bottom, or --by <px> (only one action at a time).",
-		wait: "Wait for a page load state (load|domcontentloaded|networkidle) without manual sleep. When used via the --wait flag on navigation commands, a wait failure surfaces as a wait_warning field on the successful result instead of masking the navigation.",
-		find: "Look up labelled page data from the current snapshot by text/name (e.g. find Classrooms -> {value, ref}), pairing adjacent label/value nodes so KPIs and stats read as structured values instead of grepping a flat tree.",
-	} as Record<string, string>,
+  binary: "playwright-cli-axi",
+  description:
+    "AXI-friendly Playwright browser control with TOON output and video state",
+  npxBinary: "npx -y playwright-cli-axi",
+  next: [
+    "playwright-cli-axi open https://example.com",
+    "playwright-cli-axi list --all",
+    "playwright-cli-axi video-start ./recording.webm --size 800x600",
+    "playwright-cli-axi video-stop",
+    "playwright-cli-axi --help",
+  ] as string[],
+  videoCommands: {
+    "video-start":
+      "Start recording the current browser session to an optional WebM file.",
+    "video-stop":
+      "Stop recording and report typed video artifacts returned by upstream.",
+    "video-chapter": "Add a title card marker to the recording timeline.",
+    "video-chapters":
+      "Read the recorded chapter manifest with seek offsets (no sidecar parsing).",
+    "video-status":
+      "Print the full recording summary: status, files, chapters, actions, warnings.",
+    "video-show-actions":
+      "Overlay subsequent action names and target highlights on the page.",
+    "video-hide-actions": "Stop overlaying action callouts on the page.",
+  },
+  commandGroups: COMMAND_GROUPS,
+  wrapperCommands: {
+    setup:
+      "Install/repair the SessionStart hook so agent sessions start with live browser and video context.",
+    context:
+      "Print the token-budgeted session-start context slice (invoked by the hook).",
+    scroll:
+      "Scroll the page: --to <ref> (scrollIntoView), --top, --bottom, or --by <px> (only one action at a time).",
+    wait: "Wait for a page load state (load|domcontentloaded|networkidle) without manual sleep. When used via the --wait flag on navigation commands, a wait failure surfaces as a wait_warning field on the successful result instead of masking the navigation.",
+    find: "Look up labelled page data from the current snapshot by text/name (e.g. find Classrooms -> {value, ref}), pairing adjacent label/value nodes so KPIs and stats read as structured values instead of grepping a flat tree.",
+  } as Record<string, string>,
 };
 
 /** C-2/C-4/C-1 doc sections for the generated skill. Kept as a plain
@@ -69,31 +69,31 @@ const skillDocSections = [
 ].join("\n");
 
 export function renderSkillMarkdown(): string {
-	const commandLines = Object.entries(CATALOG.videoCommands)
-		.map(([name, summary]) => `- \`${CATALOG.npxBinary} ${name}\` — ${summary}`)
-		.join("\n");
-	const wrapperLines = Object.entries(CATALOG.wrapperCommands)
-		.map(([name, summary]) => `- \`${CATALOG.npxBinary} ${name}\` — ${summary}`)
-		.join("\n");
-	const commandMatrix = CATALOG.commandGroups
-		.map(
-			(group) =>
-				`- **${group.title}**: ${group.commands.map((command) => `\`${command}\``).join(", ")} — ${group.summary}`,
-		)
-		.join("\n");
-	const examples = [
-		`${CATALOG.npxBinary}`,
-		`${CATALOG.npxBinary} list --all`,
-		`${CATALOG.npxBinary} video-start ./recording.webm --size 800x600`,
-		`${CATALOG.npxBinary} video-show-actions --duration 100 --position top-right --cursor pointer`,
-		`${CATALOG.npxBinary} video-chapter Smoke --description "AXI smoke" --duration 50`,
-		`${CATALOG.npxBinary} video-hide-actions`,
-		`${CATALOG.npxBinary} video-stop`,
-	]
-		.map((example) => `- \`${example}\``)
-		.join("\n");
+  const commandLines = Object.entries(CATALOG.videoCommands)
+    .map(([name, summary]) => `- \`${CATALOG.npxBinary} ${name}\` — ${summary}`)
+    .join("\n");
+  const wrapperLines = Object.entries(CATALOG.wrapperCommands)
+    .map(([name, summary]) => `- \`${CATALOG.npxBinary} ${name}\` — ${summary}`)
+    .join("\n");
+  const commandMatrix = CATALOG.commandGroups
+    .map(
+      (group) =>
+        `- **${group.title}**: ${group.commands.map((command) => `\`${command}\``).join(", ")} — ${group.summary}`,
+    )
+    .join("\n");
+  const examples = [
+    `${CATALOG.npxBinary}`,
+    `${CATALOG.npxBinary} list --all`,
+    `${CATALOG.npxBinary} video-start ./recording.webm --size 800x600`,
+    `${CATALOG.npxBinary} video-show-actions --duration 100 --position top-right --cursor pointer`,
+    `${CATALOG.npxBinary} video-chapter Smoke --description "AXI smoke" --duration 50`,
+    `${CATALOG.npxBinary} video-hide-actions`,
+    `${CATALOG.npxBinary} video-stop`,
+  ]
+    .map((example) => `- \`${example}\``)
+    .join("\n");
 
-	return `---
+  return `---
 name: playwright-cli-axi
 description: Use playwright-cli-axi when controlling Playwright from an agent shell and when video recording, TOON output, or AXI-friendly browser automation matters.
 ---

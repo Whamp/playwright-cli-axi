@@ -1,76 +1,76 @@
 import {
-	isCloseLikeCommand,
-	isKnownUpstreamCommand,
+  isCloseLikeCommand,
+  isKnownUpstreamCommand,
 } from "./upstreamCommands.js";
 
 export const VIDEO_COMMANDS = [
-	"video-start",
-	"video-stop",
-	"video-chapter",
-	"video-chapters",
-	"video-status",
-	"video-show-actions",
-	"video-hide-actions",
+  "video-start",
+  "video-stop",
+  "video-chapter",
+  "video-chapters",
+  "video-status",
+  "video-show-actions",
+  "video-hide-actions",
 ] as const;
 
 export type VideoCommandName = (typeof VIDEO_COMMANDS)[number];
 
 const RAW_OUTPUT_COMMANDS = new Set(["install-browser"]);
 const GLOBAL_FLAGS_WITH_VALUE = new Set([
-	"--session",
-	"-s",
-	"--fields",
-	"--wait",
-	"--settle",
+  "--session",
+  "-s",
+  "--fields",
+  "--wait",
+  "--settle",
 ]);
 const GLOBAL_BOOLEAN_FLAGS = new Set([
-	"--json",
-	"--raw",
-	"--version",
-	"--full",
+  "--json",
+  "--raw",
+  "--version",
+  "--full",
 ]);
 
 export function commandName(argv: string[]): string | undefined {
-	const index = commandIndex(argv);
-	return index === -1 ? undefined : argv[index];
+  const index = commandIndex(argv);
+  return index === -1 ? undefined : argv[index];
 }
 
 export function commandIndex(argv: string[]): number {
-	for (let index = 0; index < argv.length; index += 1) {
-		const arg = argv[index]!;
-		if (isInlineValueFlag(arg) || GLOBAL_BOOLEAN_FLAGS.has(arg)) continue;
-		if (GLOBAL_FLAGS_WITH_VALUE.has(arg)) {
-			index += 1;
-			continue;
-		}
-		if (arg.startsWith("-")) continue;
-		return index;
-	}
-	return -1;
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index]!;
+    if (isInlineValueFlag(arg) || GLOBAL_BOOLEAN_FLAGS.has(arg)) continue;
+    if (GLOBAL_FLAGS_WITH_VALUE.has(arg)) {
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith("-")) continue;
+    return index;
+  }
+  return -1;
 }
 
 export function argsAfterCommand(argv: string[]): string[] {
-	const index = commandIndex(argv);
-	return index === -1 ? [] : stripGlobalFlags(argv.slice(index + 1));
+  const index = commandIndex(argv);
+  return index === -1 ? [] : stripGlobalFlags(argv.slice(index + 1));
 }
 
 export function sessionFromArgv(argv: string[]): string | undefined {
-	for (let index = 0; index < argv.length; index += 1) {
-		const arg = argv[index]!;
-		if (arg.startsWith("-s=")) return nonEmpty(arg.slice(3));
-		if (arg.startsWith("--session="))
-			return nonEmpty(arg.slice("--session=".length));
-		if (arg === "-s" || arg === "--session") return nonEmpty(argv[index + 1]);
-	}
-	return undefined;
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index]!;
+    if (arg.startsWith("-s=")) return nonEmpty(arg.slice(3));
+    if (arg.startsWith("--session="))
+      return nonEmpty(arg.slice("--session=".length));
+    if (arg === "-s" || arg === "--session") return nonEmpty(argv[index + 1]);
+  }
+  return undefined;
 }
 
 function nonEmpty(value: string | undefined): string | undefined {
-	return value && value.length > 0 ? value : undefined;
+  return value && value.length > 0 ? value : undefined;
 }
 
 export function stripJsonFlags(argv: string[]): string[] {
-	return argv.filter((arg) => arg !== "--json");
+  return argv.filter((arg) => arg !== "--json");
 }
 
 /** Value-bearing flags whose argument is a file path the agent names explicitly. */
@@ -84,9 +84,9 @@ const FILE_VALUE_FLAGS = new Set(["--filename", "--path"]);
  * resolved daemon-side and orphaned in the artifact cache dir).
  */
 const COMMAND_FILE_POSITIONALS = new Set([
-	"video-start",
-	"state-save",
-	"state-load",
+  "video-start",
+  "state-save",
+  "state-load",
 ]);
 
 /**
@@ -103,81 +103,82 @@ const COMMAND_FILE_POSITIONALS = new Set([
  * so it is safe for display/input normalization. Preserves a leading root and
  * Windows drive/UNC prefixes. */
 export function canonicalizePath(p: string): string {
-	if (p === "") return p;
-	const isWindowsDrive = /^[A-Za-z]:[\\/]/.test(p);
-	const prefix = isWindowsDrive
-		? ""
-		: p.startsWith("//")
-			? "//"
-			: p.startsWith("/")
-				? "/"
-				: "";
-	const drive = isWindowsDrive ? `${p.slice(0, 2)}/` : "";
-	const body = isWindowsDrive ? p.slice(2) : p.slice(prefix.length);
-	const out: string[] = [];
-	for (const seg of body.split(/[\\/]/)) {
-		if (seg === "" || seg === ".") continue;
-		if (seg === "..") {
-			if (out.length) out.pop();
-			continue;
-		}
-		out.push(seg);
-	}
-	return `${drive || prefix}${out.join("/")}`;
-}export function resolveRelativeFilePaths(
-	argv: string[],
-	shellCwd: string,
+  if (p === "") return p;
+  const isWindowsDrive = /^[A-Za-z]:[\\/]/.test(p);
+  const prefix = isWindowsDrive
+    ? ""
+    : p.startsWith("//")
+      ? "//"
+      : p.startsWith("/")
+        ? "/"
+        : "";
+  const drive = isWindowsDrive ? `${p.slice(0, 2)}/` : "";
+  const body = isWindowsDrive ? p.slice(2) : p.slice(prefix.length);
+  const out: string[] = [];
+  for (const seg of body.split(/[\\/]/)) {
+    if (seg === "" || seg === ".") continue;
+    if (seg === "..") {
+      if (out.length) out.pop();
+      continue;
+    }
+    out.push(seg);
+  }
+  return `${drive || prefix}${out.join("/")}`;
+}
+export function resolveRelativeFilePaths(
+  argv: string[],
+  shellCwd: string,
 ): string[] {
-	const isAbsolute = (p: string) =>
-		p.startsWith("/") || /^[A-Za-z]:[\\/]/.test(p) || p.startsWith("\\\\");
-	// H3-1: join against the shell cwd then canonicalize so `./state.json` and
-	// `../x` produce clean absolute paths (`/cwd/state.json`, not `/cwd/./…`).
-	const absolutize = (p: string) =>
-		isAbsolute(p) || p === "" ? p : canonicalizePath(`${shellCwd}/${p}`);
-	const result: string[] = [];
-	const cmdIdx = commandIndex(argv);
-	const cmdName = cmdIdx === -1 ? undefined : argv[cmdIdx];
-	const resolveFilePositional =
-		cmdName !== undefined && COMMAND_FILE_POSITIONALS.has(cmdName);
-	let positionalSeenAfterCommand = 0;
-	for (let index = 0; index < argv.length; index += 1) {
-		const arg = argv[index]!;
-		let matched = false;
-		for (const flag of FILE_VALUE_FLAGS) {
-			if (arg === flag) {
-				result.push(flag);
-				const value = argv[index + 1];
-				result.push(value === undefined ? value : absolutize(value));
-				index += 1;
-				matched = true;
-				break;
-			}
-			const prefix = `${flag}=`;
-			if (arg.startsWith(prefix)) {
-				result.push(`${prefix}${absolutize(arg.slice(prefix.length))}`);
-				matched = true;
-				break;
-			}
-		}
-		if (!matched) {
-			// N-9: the video-start positional filename is a named output file.
-			if (
-				resolveFilePositional &&
-				index > cmdIdx &&
-				!arg.startsWith("-") &&
-				positionalSeenAfterCommand === 0
-			) {
-				result.push(absolutize(arg));
-				positionalSeenAfterCommand += 1;
-				continue;
-			}
-			result.push(arg);
-			if (resolveFilePositional && index > cmdIdx && !arg.startsWith("-")) {
-				positionalSeenAfterCommand += 1;
-			}
-		}
-	}
-	return result;
+  const isAbsolute = (p: string) =>
+    p.startsWith("/") || /^[A-Za-z]:[\\/]/.test(p) || p.startsWith("\\\\");
+  // H3-1: join against the shell cwd then canonicalize so `./state.json` and
+  // `../x` produce clean absolute paths (`/cwd/state.json`, not `/cwd/./…`).
+  const absolutize = (p: string) =>
+    isAbsolute(p) || p === "" ? p : canonicalizePath(`${shellCwd}/${p}`);
+  const result: string[] = [];
+  const cmdIdx = commandIndex(argv);
+  const cmdName = cmdIdx === -1 ? undefined : argv[cmdIdx];
+  const resolveFilePositional =
+    cmdName !== undefined && COMMAND_FILE_POSITIONALS.has(cmdName);
+  let positionalSeenAfterCommand = 0;
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index]!;
+    let matched = false;
+    for (const flag of FILE_VALUE_FLAGS) {
+      if (arg === flag) {
+        result.push(flag);
+        const value = argv[index + 1];
+        result.push(value === undefined ? value : absolutize(value));
+        index += 1;
+        matched = true;
+        break;
+      }
+      const prefix = `${flag}=`;
+      if (arg.startsWith(prefix)) {
+        result.push(`${prefix}${absolutize(arg.slice(prefix.length))}`);
+        matched = true;
+        break;
+      }
+    }
+    if (!matched) {
+      // N-9: the video-start positional filename is a named output file.
+      if (
+        resolveFilePositional &&
+        index > cmdIdx &&
+        !arg.startsWith("-") &&
+        positionalSeenAfterCommand === 0
+      ) {
+        result.push(absolutize(arg));
+        positionalSeenAfterCommand += 1;
+        continue;
+      }
+      result.push(arg);
+      if (resolveFilePositional && index > cmdIdx && !arg.startsWith("-")) {
+        positionalSeenAfterCommand += 1;
+      }
+    }
+  }
+  return result;
 }
 
 /**
@@ -188,31 +189,31 @@ export function canonicalizePath(p: string): string {
  * or `--version` when a command resolves) are preserved as passthrough.
  */
 export function stripWrapperFlags(argv: string[]): string[] {
-	const result: string[] = [];
-	for (let index = 0; index < argv.length; index += 1) {
-		const arg = argv[index]!;
-		if (arg === "--json" || arg === "--full") continue;
-		if (arg === "--fields" || arg === "--wait") {
-			index += 1; // also drop the value token
-			continue;
-		}
-		if (arg === "--settle") {
-			// --settle takes an OPTIONAL value: drop a following recognized state, but
-			// leave the next token if it is the command's own positional/flag.
-			const next = argv[index + 1];
-			if (next !== undefined && isValidWaitState(next)) index += 1;
-			continue;
-		}
-		if (arg.startsWith("--fields=") || arg.startsWith("--wait=")) continue;
-		if (arg.startsWith("--settle=")) continue;
-		result.push(arg);
-	}
-	return result;
+  const result: string[] = [];
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index]!;
+    if (arg === "--json" || arg === "--full") continue;
+    if (arg === "--fields" || arg === "--wait") {
+      index += 1; // also drop the value token
+      continue;
+    }
+    if (arg === "--settle") {
+      // --settle takes an OPTIONAL value: drop a following recognized state, but
+      // leave the next token if it is the command's own positional/flag.
+      const next = argv[index + 1];
+      if (next !== undefined && isValidWaitState(next)) index += 1;
+      continue;
+    }
+    if (arg.startsWith("--fields=") || arg.startsWith("--wait=")) continue;
+    if (arg.startsWith("--settle=")) continue;
+    result.push(arg);
+  }
+  return result;
 }
 
 /** Whether the caller asked for untruncated output (`--full`). */
 export function hasFullFlag(argv: string[]): boolean {
-	return argv.includes("--full");
+  return argv.includes("--full");
 }
 
 /**
@@ -220,43 +221,43 @@ export function hasFullFlag(argv: string[]): boolean {
  * Valid states: load, domcontentloaded, networkidle.
  */
 export function parseWaitFlag(argv: string[]): string | undefined {
-	let raw: string | undefined;
-	for (let index = 0; index < argv.length; index += 1) {
-		const arg = argv[index]!;
-		if (arg.startsWith("--wait=")) raw = arg.slice("--wait=".length);
-		else if (arg === "--wait") raw = argv[index + 1];
-		if (raw !== undefined) break;
-	}
-	if (raw === undefined) return undefined;
-	const state = raw.trim();
-	if (["load", "domcontentloaded", "networkidle"].includes(state)) return state;
-	return undefined;
+  let raw: string | undefined;
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index]!;
+    if (arg.startsWith("--wait=")) raw = arg.slice("--wait=".length);
+    else if (arg === "--wait") raw = argv[index + 1];
+    if (raw !== undefined) break;
+  }
+  if (raw === undefined) return undefined;
+  const state = raw.trim();
+  if (["load", "domcontentloaded", "networkidle"].includes(state)) return state;
+  return undefined;
 }
 
 export function isValidWaitState(state: string): boolean {
-	return ["load", "domcontentloaded", "networkidle"].includes(state);
+  return ["load", "domcontentloaded", "networkidle"].includes(state);
 }
 
 /** Read a `--settle [state]` request (C-4). Returns the load state to settle on
  * (default `networkidle`) when present, else undefined. */
 export function parseSettleFlag(argv: string[]): string | undefined {
-	for (let index = 0; index < argv.length; index += 1) {
-		const arg = argv[index]!;
-		let raw: string | undefined;
-		if (arg.startsWith("--settle=")) raw = arg.slice("--settle=".length);
-		else if (arg === "--settle") {
-			const next = argv[index + 1];
-			// `--settle` takes an optional value; only consume the next token when it
-			// is a recognized load state (so `click e5 --settle` works stateless).
-			if (next !== undefined && isValidWaitState(next)) raw = next;
-			else raw = "networkidle";
-		}
-		if (raw !== undefined) {
-			const state = raw.trim();
-			return isValidWaitState(state) ? state : "networkidle";
-		}
-	}
-	return undefined;
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index]!;
+    let raw: string | undefined;
+    if (arg.startsWith("--settle=")) raw = arg.slice("--settle=".length);
+    else if (arg === "--settle") {
+      const next = argv[index + 1];
+      // `--settle` takes an optional value; only consume the next token when it
+      // is a recognized load state (so `click e5 --settle` works stateless).
+      if (next !== undefined && isValidWaitState(next)) raw = next;
+      else raw = "networkidle";
+    }
+    if (raw !== undefined) {
+      const state = raw.trim();
+      return isValidWaitState(state) ? state : "networkidle";
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -269,7 +270,7 @@ export function parseSettleFlag(argv: string[]): string | undefined {
  * emitted shape (the gap that let the broken bare-`await` form ship).
  */
 export function waitForLoadStateCode(state: string, timeoutMs: number): string {
-	return `async (page) => { await page.waitForLoadState('${state}', { timeout: ${timeoutMs} }).catch(() => {}); }`;
+  return `async (page) => { await page.waitForLoadState('${state}', { timeout: ${timeoutMs} }).catch(() => {}); }`;
 }
 
 /**
@@ -285,7 +286,7 @@ export function waitForLoadStateCode(state: string, timeoutMs: number): string {
  * `page` (upstream wraps it in a non-async body). Exported for a contract test.
  */
 export function settleLoadStateCode(state: string, timeoutMs: number): string {
-	return `async (page) => { await page.waitForLoadState('${state}', { timeout: ${timeoutMs} }).catch(() => {}); let prev = page.url(); for (let i = 0; i < 12; i += 1) { await page.waitForTimeout(100); const cur = page.url(); if (cur === prev) { break; } prev = cur; } }`;
+  return `async (page) => { await page.waitForLoadState('${state}', { timeout: ${timeoutMs} }).catch(() => {}); let prev = page.url(); for (let i = 0; i < 12; i += 1) { await page.waitForTimeout(100); const cur = page.url(); if (cur === prev) { break; } prev = cur; } }`;
 }
 
 /** Commands that trigger a form submit, after which the wrapper probes HTML5
@@ -309,7 +310,7 @@ export const VALIDATION_PROBE_COMMANDS = new Set(["click", "dblclick"]);
  * receiving `page`.
  */
 export function validationProbeCode(): string {
-	return `async (page) => { /* pca-validation-probe */ const info = await page.evaluate(() => { const sel = "input:invalid, select:invalid, textarea:invalid"; const invalid = Array.from(document.querySelectorAll(sel)); const active = document.activeElement; return { activeIsInvalid: !!(active && typeof active.matches === "function" && active.matches(":invalid")), fields: invalid.map((el) => ({ tag: el.tagName.toLowerCase(), type: el.getAttribute("type") || null, name: el.getAttribute("name") || null, id: el.id || null, placeholder: el.getAttribute("placeholder") || null, label: el.labels && el.labels[0] ? el.labels[0].innerText.trim() : null, message: el.validationMessage || null })) }; }); return info; }`;
+  return `async (page) => { /* pca-validation-probe */ const info = await page.evaluate(() => { const sel = "input:invalid, select:invalid, textarea:invalid"; const invalid = Array.from(document.querySelectorAll(sel)); const active = document.activeElement; return { activeIsInvalid: !!(active && typeof active.matches === "function" && active.matches(":invalid")), fields: invalid.map((el) => ({ tag: el.tagName.toLowerCase(), type: el.getAttribute("type") || null, name: el.getAttribute("name") || null, id: el.id || null, placeholder: el.getAttribute("placeholder") || null, label: el.labels && el.labels[0] ? el.labels[0].innerText.trim() : null, message: el.validationMessage || null })) }; }); return info; }`;
 }
 
 /**
@@ -318,18 +319,18 @@ export function validationProbeCode(): string {
  * schema).
  */
 export function parseFieldsFlag(argv: string[]): string[] | undefined {
-	for (let index = 0; index < argv.length; index += 1) {
-		const arg = argv[index]!;
-		let raw: string | undefined;
-		if (arg.startsWith("--fields=")) raw = arg.slice("--fields=".length);
-		else if (arg === "--fields") raw = argv[index + 1];
-		if (raw === undefined) continue;
-		return raw
-			.split(",")
-			.map((field) => field.trim())
-			.filter((field) => field.length > 0);
-	}
-	return undefined;
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index]!;
+    let raw: string | undefined;
+    if (arg.startsWith("--fields=")) raw = arg.slice("--fields=".length);
+    else if (arg === "--fields") raw = argv[index + 1];
+    if (raw === undefined) continue;
+    return raw
+      .split(",")
+      .map((field) => field.trim())
+      .filter((field) => field.length > 0);
+  }
+  return undefined;
 }
 
 /**
@@ -341,24 +342,24 @@ export function parseFieldsFlag(argv: string[]): string[] | undefined {
  * `list -v`) continues to pass through to upstream unchanged.
  */
 export function hasVersionFlag(argv: string[]): boolean {
-	const dashDash = argv.indexOf("--");
-	const scope = dashDash === -1 ? argv : argv.slice(0, dashDash);
-	const hasFlag = scope.includes("--version") || scope.includes("-v");
-	return hasFlag && commandName(argv) === undefined;
+  const dashDash = argv.indexOf("--");
+  const scope = dashDash === -1 ? argv : argv.slice(0, dashDash);
+  const hasFlag = scope.includes("--version") || scope.includes("-v");
+  return hasFlag && commandName(argv) === undefined;
 }
 
 export function shouldInjectJson(argv: string[]): boolean {
-	const command = commandName(argv);
-	if (!command) return false;
-	if (RAW_OUTPUT_COMMANDS.has(command)) return false;
-	if (argv.includes("--help") || argv.includes("-h")) return false;
-	return true;
+  const command = commandName(argv);
+  if (!command) return false;
+  if (RAW_OUTPUT_COMMANDS.has(command)) return false;
+  if (argv.includes("--help") || argv.includes("-h")) return false;
+  return true;
 }
 
 export function isVideoCommand(
-	command: string | undefined,
+  command: string | undefined,
 ): command is VideoCommandName {
-	return VIDEO_COMMANDS.includes(command as VideoCommandName);
+  return VIDEO_COMMANDS.includes(command as VideoCommandName);
 }
 
 /** Whether a command name is any command the wrapper recognizes: a wrapper
@@ -366,53 +367,53 @@ export function isVideoCommand(
  * or a known upstream command. Used by the help router so `help <x>` and the
  * run router agree on whether `x` exists (C-5). */
 export function isKnownCommand(command: string | undefined): boolean {
-	if (!command) return false;
-	return (
-		isWrapperCommand(command) ||
-		isVideoCommand(command) ||
-		isCloseLikeCommand(command) ||
-		isKnownUpstreamCommand(command)
-	);
+  if (!command) return false;
+  return (
+    isWrapperCommand(command) ||
+    isVideoCommand(command) ||
+    isCloseLikeCommand(command) ||
+    isKnownUpstreamCommand(command)
+  );
 }
 
 /** Wrapper-only commands that never forward to upstream. */
 export const WRAPPER_COMMANDS = [
-	"setup",
-	"context",
-	"scroll",
-	"wait",
-	"find",
+  "setup",
+  "context",
+  "scroll",
+  "wait",
+  "find",
 ] as const;
 
 export type WrapperCommandName = (typeof WRAPPER_COMMANDS)[number];
 
 export function isWrapperCommand(
-	command: string | undefined,
+  command: string | undefined,
 ): command is WrapperCommandName {
-	return WRAPPER_COMMANDS.includes(command as WrapperCommandName);
+  return WRAPPER_COMMANDS.includes(command as WrapperCommandName);
 }
 
 function stripGlobalFlags(args: string[]): string[] {
-	const result: string[] = [];
-	for (let index = 0; index < args.length; index += 1) {
-		const arg = args[index]!;
-		if (isInlineValueFlag(arg) || GLOBAL_BOOLEAN_FLAGS.has(arg)) continue;
-		if (GLOBAL_FLAGS_WITH_VALUE.has(arg)) {
-			index += 1;
-			continue;
-		}
-		result.push(arg);
-	}
-	return result;
+  const result: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]!;
+    if (isInlineValueFlag(arg) || GLOBAL_BOOLEAN_FLAGS.has(arg)) continue;
+    if (GLOBAL_FLAGS_WITH_VALUE.has(arg)) {
+      index += 1;
+      continue;
+    }
+    result.push(arg);
+  }
+  return result;
 }
 
 /** Inline `name=value` forms for value-bearing global flags (space and equals). */
 function isInlineValueFlag(arg: string): boolean {
-	return (
-		arg.startsWith("-s=") ||
-		arg.startsWith("--session=") ||
-		arg.startsWith("--fields=") ||
-		arg.startsWith("--wait=") ||
-		arg.startsWith("--settle=")
-	);
+  return (
+    arg.startsWith("-s=") ||
+    arg.startsWith("--session=") ||
+    arg.startsWith("--fields=") ||
+    arg.startsWith("--wait=") ||
+    arg.startsWith("--settle=")
+  );
 }
