@@ -1,7 +1,10 @@
 import { CATALOG } from "../content/catalog.js";
 import type { SessionSummary } from "../domain/sessions.js";
 import { CHANNEL_TABLE_FIELDS } from "../domain/sessions.js";
-import { chapterManifest, type VideoSidecarState } from "../domain/videoState.js";
+import {
+  chapterManifest,
+  type VideoSidecarState,
+} from "../domain/videoState.js";
 import { table, type ToonValue } from "./toon.js";
 
 export interface HomeInput {

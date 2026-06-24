@@ -1,6 +1,9 @@
 import type { CliResult } from "../cli/main.js";
 import { commandName } from "../domain/commandSurface.js";
-import { OVERRIDE_ENV_VAR, type DiscoveredBrowser } from "../domain/browserDiscovery.js";
+import {
+  OVERRIDE_ENV_VAR,
+  type DiscoveredBrowser,
+} from "../domain/browserDiscovery.js";
 import { errorToStdout } from "../presenter/errors.js";
 import type { ParsedUpstream } from "./parse.js";
 import { sanitizeDependencyText } from "./parse.js";
@@ -106,7 +109,9 @@ function sanitizeMessage(raw: string): string {
  * usually means the daemon was already running with a stale config — restart
  * it). Falls back to the install-browser suggestion when nothing was detected.
  */
-function missingBrowserHelp(detected: DiscoveredBrowser[] | undefined): string[] {
+function missingBrowserHelp(
+  detected: DiscoveredBrowser[] | undefined,
+): string[] {
   const help: string[] = [];
   if (detected && detected.length > 0) {
     const first = detected[0]!.path;

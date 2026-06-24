@@ -18,7 +18,10 @@ describe("browser discovery (F-2)", () => {
         env: { [OVERRIDE_ENV_VAR]: "/custom/chrome" },
         exists: fs(["/custom/chrome"]),
       });
-      expect(result.browser).toEqual({ path: "/custom/chrome", channel: "override" });
+      expect(result.browser).toEqual({
+        path: "/custom/chrome",
+        channel: "override",
+      });
     });
 
     it("ignores an override that points at a missing file and falls back to discovery", () => {
@@ -38,7 +41,9 @@ describe("browser discovery (F-2)", () => {
         exists: fs(["/usr/bin/chromium", "/usr/bin/google-chrome"]),
       });
       expect(result.browser?.path).toBe("/usr/bin/chromium");
-      expect(result.detected.map((b) => b.path)).toContain("/usr/bin/google-chrome");
+      expect(result.detected.map((b) => b.path)).toContain(
+        "/usr/bin/google-chrome",
+      );
     });
 
     it("Ubuntu snap: discovers /snap/bin/chromium when nothing else exists", () => {
@@ -72,7 +77,8 @@ describe("browser discovery (F-2)", () => {
     });
 
     it("Windows 11: discovers chrome.exe and expands %LOCALAPPDATA%", () => {
-      const localPath = "C:\\Users\\me\\AppData\\Local\\Google\\Chrome\\Application\\chrome.exe";
+      const localPath =
+        "C:\\Users\\me\\AppData\\Local\\Google\\Chrome\\Application\\chrome.exe";
       const result = discoverSystemBrowser({
         platform: "win32",
         env: { LOCALAPPDATA: "C:\\Users\\me\\AppData\\Local" },
@@ -83,7 +89,8 @@ describe("browser discovery (F-2)", () => {
     });
 
     it("Windows 11: discovers Edge when Chrome is absent", () => {
-      const edge = "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
+      const edge =
+        "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
       const result = discoverSystemBrowser({
         platform: "win32",
         env: {},
@@ -93,7 +100,8 @@ describe("browser discovery (F-2)", () => {
     });
 
     it("Windows: skips %LOCALAPPDATA% path when env var is undefined", () => {
-      const edge = "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
+      const edge =
+        "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
       const result = discoverSystemBrowser({
         platform: "win32",
         env: {}, // LOCALAPPDATA not set

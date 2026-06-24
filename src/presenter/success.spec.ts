@@ -359,7 +359,10 @@ describe("commandSuccessModel --full (AXI principle 3)", () => {
   it("reports result_bytes as true UTF-8 bytes (not code units) (F4)", () => {
     const value = { text: "界".repeat(600) };
     const parsed = { kind: "json", value, isError: false } as const;
-    const model = commandSuccessModel("config-print", parsed) as Record<string, unknown>;
+    const model = commandSuccessModel("config-print", parsed) as Record<
+      string,
+      unknown
+    >;
     const expectedBytes = Buffer.byteLength(JSON.stringify(value), "utf8");
     expect(model.result_bytes).toBe(expectedBytes);
     expect(model.result_truncated).toBe(true);
@@ -368,7 +371,10 @@ describe("commandSuccessModel --full (AXI principle 3)", () => {
   it("does not split a multibyte/surrogate code point at the byte boundary (F4)", () => {
     const value = { text: "😀".repeat(700) };
     const parsed = { kind: "json", value, isError: false } as const;
-    const model = commandSuccessModel("config-print", parsed) as Record<string, unknown>;
+    const model = commandSuccessModel("config-print", parsed) as Record<
+      string,
+      unknown
+    >;
     const preview = String(model.result);
     // The truncated preview must round-trip through UTF-8 without a replacement
     // char, proving no surrogate pair was split.
@@ -383,11 +389,19 @@ describe("commandSuccessModel --full (AXI principle 3)", () => {
     const overBoundary = { x: "a".repeat(1493) };
     const p1 = { kind: "json", value: atBoundary, isError: false } as const;
     const p2 = { kind: "json", value: overBoundary, isError: false } as const;
-    const m1 = commandSuccessModel("config-print", p1) as Record<string, unknown>;
-    const m2 = commandSuccessModel("config-print", p2) as Record<string, unknown>;
+    const m1 = commandSuccessModel("config-print", p1) as Record<
+      string,
+      unknown
+    >;
+    const m2 = commandSuccessModel("config-print", p2) as Record<
+      string,
+      unknown
+    >;
     expect(m1.result_truncated).toBeUndefined();
     expect(m2.result_truncated).toBe(true);
-    expect(m2.result_bytes).toBe(Buffer.byteLength(JSON.stringify(overBoundary), "utf8"));
+    expect(m2.result_bytes).toBe(
+      Buffer.byteLength(JSON.stringify(overBoundary), "utf8"),
+    );
   });
 });
 
@@ -417,13 +431,22 @@ describe("commandSuccessModel navigation flatten (P-1) and snapshot render (P-2)
       value: { result: { snapshot: { file: "p.yml" } } },
       isError: false,
     };
-    expect((commandSuccessModel("goto", parsed) as Record<string, unknown>).snapshot).toEqual({ file: "p.yml" });
-    expect((commandSuccessModel("click", parsed) as Record<string, unknown>).snapshot).toEqual({ file: "p.yml" });
+    expect(
+      (commandSuccessModel("goto", parsed) as Record<string, unknown>).snapshot,
+    ).toEqual({ file: "p.yml" });
+    expect(
+      (commandSuccessModel("click", parsed) as Record<string, unknown>)
+        .snapshot,
+    ).toEqual({ file: "p.yml" });
   });
 
   it("P-2: renders the snapshot a11y tree as readable bounded text, not JSON-string-of-YAML", () => {
-    const tree = "- generic [ref=e5]:\n  - heading \"Hi\" [ref=e6]";
-    const parsed = { kind: "json" as const, value: { snapshot: tree }, isError: false };
+    const tree = '- generic [ref=e5]:\n  - heading "Hi" [ref=e6]';
+    const parsed = {
+      kind: "json" as const,
+      value: { snapshot: tree },
+      isError: false,
+    };
     const model = commandSuccessModel("snapshot", parsed);
     expect(model.snapshot).toBe(tree);
     expect(JSON.stringify(model)).not.toContain('"{\\"snapshot\\"');
@@ -432,12 +455,21 @@ describe("commandSuccessModel navigation flatten (P-1) and snapshot render (P-2)
 
   it("P-2: truncates a large snapshot with a char count and --full escape hatch", () => {
     const tree = "x".repeat(2000);
-    const parsed = { kind: "json" as const, value: { snapshot: tree }, isError: false };
-    const truncated = commandSuccessModel("snapshot", parsed) as Record<string, unknown>;
+    const parsed = {
+      kind: "json" as const,
+      value: { snapshot: tree },
+      isError: false,
+    };
+    const truncated = commandSuccessModel("snapshot", parsed) as Record<
+      string,
+      unknown
+    >;
     expect(truncated.snapshot_truncated).toBe(true);
     expect(truncated.snapshot_chars).toBe(2000);
     expect((truncated.help as string[])[0]).toContain("snapshot --full");
-    const full = commandSuccessModel("snapshot", parsed, { full: true }) as Record<string, unknown>;
+    const full = commandSuccessModel("snapshot", parsed, {
+      full: true,
+    }) as Record<string, unknown>;
     expect(full.snapshot).toBe(tree);
     expect(full.snapshot_truncated).toBeUndefined();
   });

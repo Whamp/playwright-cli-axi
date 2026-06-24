@@ -1,6 +1,9 @@
 import type { ToonValue } from "../presenter/toon.js";
 import { isObject } from "../upstream/parse.js";
-import { channelUsable, type BrowserDiscoveryDeps } from "./browserDiscovery.js";
+import {
+  channelUsable,
+  type BrowserDiscoveryDeps,
+} from "./browserDiscovery.js";
 
 export interface SessionSummary {
   browsers: { count: number; empty?: string; rows: BrowserRow[] };
@@ -32,11 +35,7 @@ export interface ChannelSessionRow extends Record<string, ToonValue> {
 }
 
 /** Default (minimal) table schemas for list output. */
-export const BROWSER_TABLE_FIELDS = [
-  "id",
-  "name",
-  "status",
-] as const;
+export const BROWSER_TABLE_FIELDS = ["id", "name", "status"] as const;
 /** Every browser column the wrapper can capture from upstream. */
 export const BROWSER_TABLE_FIELDS_ALL = [
   "id",
@@ -158,7 +157,7 @@ function emptySessions(): SessionSummary {
 
 function normalizeBrowser(browser: unknown, index: number): BrowserRow {
   if (!isObject(browser))
-  return { id: String(index + 1), name: "browser", status: "open" };
+    return { id: String(index + 1), name: "browser", status: "open" };
   return {
     id: stringField(browser, ["id", "browserId", "name"], String(index + 1)),
     name: stringField(browser, ["name", "browserName", "type"], "browser"),
@@ -171,7 +170,8 @@ function normalizeBrowser(browser: unknown, index: number): BrowserRow {
       browser.userDataDir === null || browser.userDataDir === undefined
         ? "<in-memory>"
         : stringField(browser, ["userDataDir", "dataDir"], "<in-memory>"),
-    headed: browser.headed === undefined ? "" : booleanField(browser, ["headed"]),
+    headed:
+      browser.headed === undefined ? "" : booleanField(browser, ["headed"]),
   };
 }
 
@@ -211,7 +211,11 @@ function normalizeChannelSession(
       endpoint: "no",
       usable: "no",
     };
-  const channel = stringField(session, ["channel", "name", "id"], String(index + 1));
+  const channel = stringField(
+    session,
+    ["channel", "name", "id"],
+    String(index + 1),
+  );
   return {
     channel,
     dataDir: stringField(session, ["userDataDir", "dataDir"], ""),

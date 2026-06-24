@@ -88,8 +88,16 @@ function listModel(
     BROWSER_TABLE_FIELDS,
     BROWSER_TABLE_FIELDS_ALL,
   );
-  const serverFields = resolveTableFields(fields, SERVER_TABLE_FIELDS, SERVER_TABLE_FIELDS);
-  const channelFields = resolveTableFields(fields, CHANNEL_TABLE_FIELDS, CHANNEL_TABLE_FIELDS);
+  const serverFields = resolveTableFields(
+    fields,
+    SERVER_TABLE_FIELDS,
+    SERVER_TABLE_FIELDS,
+  );
+  const channelFields = resolveTableFields(
+    fields,
+    CHANNEL_TABLE_FIELDS,
+    CHANNEL_TABLE_FIELDS,
+  );
   return {
     ...baseModel(command),
     browsers: {
@@ -162,7 +170,9 @@ function familyResultModel(
   options: SuccessOptions,
 ): Record<string, ToonValue> {
   const result = toResultValue(value);
-  const artifacts = ARTIFACT_SUMMARY_GROUP_IDS.has(commandGroupFor(command)?.id ?? "")
+  const artifacts = ARTIFACT_SUMMARY_GROUP_IDS.has(
+    commandGroupFor(command)?.id ?? "",
+  )
     ? artifactRows(value)
     : [];
   const counts = arrayCounts(value);
@@ -190,7 +200,7 @@ function familyResultModel(
 /** Serialize a value defensively; returns "" if JSON.stringify throws. */
 function safeStringify(value: ToonValue): string {
   try {
-    return value === undefined ? "" : JSON.stringify(value) ?? "";
+    return value === undefined ? "" : (JSON.stringify(value) ?? "");
   } catch {
     return "";
   }
@@ -244,14 +254,20 @@ function navigationModel(
   for (const [key, child] of Object.entries(value)) {
     if (key === "result" && isObject(child) && "snapshot" in child) {
       // Lift the snapshot out of the redundant `result` wrapper.
-      lifted.snapshot = resolveSnapshot(simpleValue(child.snapshot), options.artifactBase);
+      lifted.snapshot = resolveSnapshot(
+        simpleValue(child.snapshot),
+        options.artifactBase,
+      );
       // Keep any non-snapshot siblings of the inner result.
       for (const [innerKey, innerChild] of Object.entries(child)) {
         if (innerKey === "snapshot") continue;
         remaining[innerKey] = simpleValue(innerChild);
       }
     } else if (key === "snapshot") {
-      lifted.snapshot = resolveSnapshot(simpleValue(child), options.artifactBase);
+      lifted.snapshot = resolveSnapshot(
+        simpleValue(child),
+        options.artifactBase,
+      );
     } else {
       remaining[key] = simpleValue(child);
     }
@@ -267,7 +283,10 @@ function navigationModel(
  * agent can find it regardless of where upstream ran. Text snapshots (the a11y
  * tree) and already-absolute paths pass through unchanged.
  */
-function resolveSnapshot(snapshot: ToonValue, artifactBase?: string): ToonValue {
+function resolveSnapshot(
+  snapshot: ToonValue,
+  artifactBase?: string,
+): ToonValue {
   if (!artifactBase) return snapshot;
   if (isObject(snapshot) && typeof snapshot.file === "string") {
     return { ...snapshot, file: resolveAgainst(snapshot.file, artifactBase) };
@@ -280,13 +299,17 @@ function resolveSnapshot(snapshot: ToonValue, artifactBase?: string): ToonValue 
       return snapshot;
     }
   }
-  if (typeof snapshot === "string") return resolveAgainst(snapshot, artifactBase);
+  if (typeof snapshot === "string")
+    return resolveAgainst(snapshot, artifactBase);
   return snapshot;
 }
 
 function resolveAgainst(path: string, base: string): string {
   if (path === "") return path;
-  const isAbsolute = path.startsWith("/") || /^[A-Za-z]:[\\/]/.test(path) || path.startsWith("\\\\");
+  const isAbsolute =
+    path.startsWith("/") ||
+    /^[A-Za-z]:[\\/]/.test(path) ||
+    path.startsWith("\\\\");
   return isAbsolute ? path : `${base.replace(/\/+$/, "")}/${path}`;
 }
 
@@ -301,11 +324,12 @@ function snapshotModel(
   options: SuccessOptions,
 ): Record<string, ToonValue> {
   const payload = unwrapResult(value);
-  const text = isObject(payload) && typeof payload.snapshot === "string"
-    ? payload.snapshot
-    : typeof value === "string"
-      ? value
-      : "";
+  const text =
+    isObject(payload) && typeof payload.snapshot === "string"
+      ? payload.snapshot
+      : typeof value === "string"
+        ? value
+        : "";
   const base = baseModel(command);
   if (text.length === 0) {
     return { ...base, result: toResultValue(value) };

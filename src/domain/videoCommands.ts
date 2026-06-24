@@ -42,8 +42,8 @@ export async function handleVideoCommand(
    * manifest with offsets, recording status) so an agent can recover a
    * recording's chapter map without parsing the sidecar JSON by hand.
    */
-  if (command === 'video-chapters') return videoChaptersResult(command, state);
-  if (command === 'video-status') return videoStatusResult(command, state);
+  if (command === "video-chapters") return videoChaptersResult(command, state);
+  if (command === "video-status") return videoStatusResult(command, state);
 
   const validation = validateVideoCommand(
     command,
@@ -251,7 +251,10 @@ export function validateVideoCommand(
       if (unknown)
         return usage(`${unknown} is not supported by ${command}`, command);
       if (positionals.length > 0)
-        return usage(`${command} does not accept positional arguments`, command);
+        return usage(
+          `${command} does not accept positional arguments`,
+          command,
+        );
       return { ok: true, options: { positionals, flags } };
     }
     default:
@@ -487,14 +490,10 @@ function videoStatusResult(
           ? { empty: "no video files recorded yet" }
           : {}),
       },
-      ...(state.lastFiles.length > 0
-        ? { last_files: state.lastFiles }
-        : {}),
+      ...(state.lastFiles.length > 0 ? { last_files: state.lastFiles } : {}),
       chapters: {
         count: manifest.length,
-        ...(manifest.length === 0
-          ? { empty: "no chapters recorded" }
-          : {}),
+        ...(manifest.length === 0 ? { empty: "no chapters recorded" } : {}),
       },
       ...(manifest.length > 0 ? { chapter_rows: manifest } : {}),
       actions: state.actionsOverlay.status,
@@ -565,7 +564,9 @@ export function extractVideoArtifacts(
         ...stringArray(parsed.value.files),
         ...stringArray(parsed.value.lastFiles),
       ]);
-      const otherArtifacts = [...filesAndLastFiles].filter((path) => !videos.includes(path));
+      const otherArtifacts = [...filesAndLastFiles].filter(
+        (path) => !videos.includes(path),
+      );
       return { videos, otherArtifacts, all: [...videos, ...otherArtifacts] };
     }
     for (const key of ["files", "lastFiles"]) {

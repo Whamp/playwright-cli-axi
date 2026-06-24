@@ -75,9 +75,13 @@ describe("upstream command coverage", () => {
   });
 
   it("derives close-like scopes from a single source of truth", () => {
-    expect([...CLOSE_LIKE_COMMANDS].sort()).toEqual(
-      ["close", "close-all", "delete-data", "detach", "kill-all"],
-    );
+    expect([...CLOSE_LIKE_COMMANDS].sort()).toEqual([
+      "close",
+      "close-all",
+      "delete-data",
+      "detach",
+      "kill-all",
+    ]);
     // CWD-wide is exactly close-all; global is exactly kill-all.
     expect([...CWD_WIDE_CLOSE_LIKE_COMMANDS]).toEqual(["close-all"]);
     expect([...GLOBAL_CLOSE_LIKE_COMMANDS]).toEqual(["kill-all"]);

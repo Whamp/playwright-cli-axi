@@ -93,9 +93,7 @@ export const DARWIN_CANDIDATES: readonly BrowserCandidate[] = [
   },
   {
     channel: "msedge",
-    paths: [
-      "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
-    ],
+    paths: ["/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"],
   },
   {
     channel: "brave",
@@ -130,7 +128,9 @@ export const WIN32_CANDIDATES: readonly BrowserCandidate[] = [
 ];
 
 /** Candidate lists keyed by process.platform. */
-export function candidatesForPlatform(platform: string): readonly BrowserCandidate[] {
+export function candidatesForPlatform(
+  platform: string,
+): readonly BrowserCandidate[] {
   switch (platform) {
     case "darwin":
       return DARWIN_CANDIDATES;
@@ -161,7 +161,9 @@ const CHANNEL_FAMILY: Record<string, string[]> = {
   brave: ["brave"],
 };
 
-export function resolveDeps(deps: BrowserDiscoveryDeps = {}): Required<BrowserDiscoveryDeps> {
+export function resolveDeps(
+  deps: BrowserDiscoveryDeps = {},
+): Required<BrowserDiscoveryDeps> {
   return {
     platform: deps.platform ?? process.platform,
     env: deps.env ?? nodeEnv,
@@ -173,7 +175,10 @@ export function resolveDeps(deps: BrowserDiscoveryDeps = {}): Required<BrowserDi
  * Expand `%LOCALAPPDATA%` style Windows placeholders against the env so the
  * existence check works for per-user installs.
  */
-function expandPath(path: string, env: Record<string, string | undefined>): string {
+function expandPath(
+  path: string,
+  env: Record<string, string | undefined>,
+): string {
   if (!path.includes("%")) return path;
   let expanded = path;
   let hasUndefinedVar = false;
@@ -198,7 +203,9 @@ function expandPath(path: string, env: Record<string, string | undefined>): stri
  *    file, it wins (the user's explicit choice is respected).
  * 2. Otherwise, scan the per-OS candidate list and use the first that exists.
  */
-export function discoverSystemBrowser(deps: BrowserDiscoveryDeps = {}): DiscoveryResult {
+export function discoverSystemBrowser(
+  deps: BrowserDiscoveryDeps = {},
+): DiscoveryResult {
   const { platform, env, exists } = resolveDeps(deps);
 
   const override = env[OVERRIDE_ENV_VAR];
@@ -242,7 +249,10 @@ export function channelUsable(
   const candidates = candidatesForPlatform(resolved.platform);
   for (const family of families) {
     const candidate = candidates.find((c) => c.channel === family);
-    if (candidate && candidate.paths.some((p) => resolved.exists(expandPath(p, resolved.env)))) {
+    if (
+      candidate &&
+      candidate.paths.some((p) => resolved.exists(expandPath(p, resolved.env)))
+    ) {
       return "yes";
     }
   }

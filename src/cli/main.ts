@@ -29,7 +29,10 @@ import {
   reconcileVideoState,
   type VideoSidecarState,
 } from "../domain/videoState.js";
-import { helpToStdout, upstreamHelpPreviewToStdout } from "../presenter/help.js";
+import {
+  helpToStdout,
+  upstreamHelpPreviewToStdout,
+} from "../presenter/help.js";
 import { homeModel } from "../presenter/home.js";
 import { contextModel } from "../presenter/context.js";
 import { commandSuccessModel } from "../presenter/success.js";
@@ -135,7 +138,9 @@ function renderVersion(deps: Required<CliDependencies>): CliResult {
 
 function runSetup(argv: string[], deps: Required<CliDependencies>): CliResult {
   const scope: HookScope = argv.includes("--scope")
-    ? (argv[argv.indexOf("--scope") + 1] === "project" ? "project" : "user")
+    ? argv[argv.indexOf("--scope") + 1] === "project"
+      ? "project"
+      : "user"
     : "user";
   const result = installSessionStartHook({
     executablePath: deps.executablePath,
@@ -147,8 +152,13 @@ function runSetup(argv: string[], deps: Required<CliDependencies>): CliResult {
   return { exitCode: 0, stdout: toToon(setupModel(scope, result)) };
 }
 
-function setupModel(scope: HookScope, result: ReturnType<typeof installSessionStartHook>): ToonValue {
-  const skipped = result.installed.filter((entry) => entry.action === "skipped");
+function setupModel(
+  scope: HookScope,
+  result: ReturnType<typeof installSessionStartHook>,
+): ToonValue {
+  const skipped = result.installed.filter(
+    (entry) => entry.action === "skipped",
+  );
   return {
     command: "setup",
     status: skipped.length > 0 ? "partial" : "ok",
@@ -253,7 +263,13 @@ async function runGenericCommand(
   }
   return {
     exitCode: 0,
-    stdout: toToon(commandSuccessModel(command, parsed, { full, fields, artifactBase: run.artifactBase })),
+    stdout: toToon(
+      commandSuccessModel(command, parsed, {
+        full,
+        fields,
+        artifactBase: run.artifactBase,
+      }),
+    ),
   };
 }
 
@@ -320,10 +336,7 @@ async function runScrollCommand(
     evalArgv = ["eval", "() => window.scrollTo(0, 0)"];
     description = "scrolled to top";
   } else if (where === "bottom") {
-    evalArgv = [
-      "eval",
-      "() => window.scrollTo(0, document.body.scrollHeight)",
-    ];
+    evalArgv = ["eval", "() => window.scrollTo(0, document.body.scrollHeight)"];
     description = "scrolled to bottom";
   } else if (byPx !== undefined) {
     if (!/^-?\d+$/.test(byPx))
@@ -415,7 +428,11 @@ async function runPageWait(
 
 function successTextOf(parsed: ReturnType<typeof parseUpstreamOutput>): string {
   if (parsed.kind === "text") return parsed.text;
-  if (parsed.value && typeof parsed.value === "object" && "result" in parsed.value) {
+  if (
+    parsed.value &&
+    typeof parsed.value === "object" &&
+    "result" in parsed.value
+  ) {
     const v = (parsed.value as { result?: unknown }).result;
     return typeof v === "string" ? v : "";
   }

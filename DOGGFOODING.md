@@ -13,6 +13,7 @@
 ## How to read this log
 
 Findings are grouped by severity. Each entry records:
+
 - **What I tried** (the exact command / intent)
 - **What happened** (actual output/behavior)
 - **Why it hurts** (the concrete agent cost)
@@ -20,6 +21,7 @@ Findings are grouped by severity. Each entry records:
 - **Suggested fix**
 
 ### Severity key
+
 - 🔴 **Friction** — actively blocked or had to drop to raw tooling / guesswork
 - 🟡 **Pain** — extra round-trip or cognitive load, but recoverable
 - 🔵 **Departure** — works, but deviates from an AXI principle (ergonomic debt)
@@ -36,6 +38,7 @@ Ran `playwright-cli-axi --help` to learn the surface. Clean TOON command matrix,
 ### 1. Starting the recording
 
 #### 🔴 F-1: `help <command>` is an unknown command (CORRECTED — narrower than first thought)
+
 - Tried: `playwright-cli-axi help goto` and `help navigate`
 - Got: `error: kind: usage / message: "Unknown command: help"`
 - Correction: subcommand `--help` **does** work — `screenshot --help` returns the
@@ -49,12 +52,13 @@ Ran `playwright-cli-axi --help` to learn the surface. Clean TOON command matrix,
   the `help <command>` alias.
 
 #### 🔴 F-2: `open` can't see the system browser; home view's channel hints are useless here
+
 - Tried: `playwright-cli-axi open https://classroom-connect.app`
 - Got: `error: kind: missing_browser / message: required browser executable is
-  missing / help: install-browser chrome-for-testing`
+missing / help: install-browser chrome-for-testing`
 - Reality: Chromium 148 is at `/usr/bin/chromium` (home view even lists 4
   channel sessions). It works only with `PLAYWRIGHT_MCP_EXECUTABLE_PATH` set.
-- Why it hurts: the home view *advertises* the channel sessions it discovered,
+- Why it hurts: the home view _advertises_ the channel sessions it discovered,
   implying the tool can use them, but `open` ignores them entirely. The error's
   only suggested fix (`install-browser chrome-for-testing`) is a heavyweight
   network install when a local browser already exists.
@@ -68,6 +72,7 @@ Ran `playwright-cli-axi --help` to learn the surface. Clean TOON command matrix,
   mark channel sessions with a `usable: yes/no` derived field.
 
 #### 🟡 P-1: `open` nests the snapshot under `result.result.snapshot.file`
+
 - Got: `result: { session, pid, result: { snapshot: { file: ... } } }`
 - Why it hurts: the snapshot file path — the thing I need next — is buried two
   levels deep under a redundant `result.result` envelope. An agent has to know
@@ -75,6 +80,7 @@ Ran `playwright-cli-axi --help` to learn the surface. Clean TOON command matrix,
 - AXI principle: **2 (minimal default schemas)** — redundant nesting.
 
 #### 🔴 F-3: snapshot artifacts are written into the CWD as `.playwright-cli/*`
+
 - Got: `.playwright-cli/page-2026-06-24T14-35-50-844Z.yml` created in the repo
 - Why it hurts: every navigation pollutes the working directory with timestamped
   files. In a git repo these get accidentally committed (this exact artifact bit
@@ -96,10 +102,12 @@ preceded this.)
 ### 2. Navigating the landing page
 
 #### ✅ GOOD-1: bounded result + `--full` escape hatch works as designed
+
 - `snapshot` returned `result_truncated: true`, `result_bytes: 4759`, and a
   `help[1]: playwright-cli-axi snapshot --full` hint. AXI principle 3 done right.
 
 #### 🟡 P-2: snapshot content is a JSON-string-of-YAML, not structured TOON
+
 - The `result` field contains `"{\"snapshot\":\"- generic [ref=e5]:\\n  - navigation...`"
   — a JSON string wrapping a YAML tree, double-escaped inside TOON.
 - Why it hurts: to read the page structure I mentally un-escape two layers. The
@@ -110,9 +118,10 @@ preceded this.)
   already hierarchical but flattened into a string.
 
 #### 🟡 P-3: `screenshot` argument shape is discovered by error
+
 - Tried `screenshot --path ./x.png` → `Unknown option: --path`; then
   `screenshot ./x.png` → treated the path as a CSS selector and failed upstream.
-  Correct form is `screenshot --filename ./x.png` (positional is the *element target*).
+  Correct form is `screenshot --filename ./x.png` (positional is the _element target_).
 - Why it hurts: upstream's `[target]` vs `--filename` split is reasonable, but
   the wrapper surfaces it only via two failed calls. The structured error helpfully
   points to `screenshot --help`, which is where I should have started.
@@ -122,18 +131,22 @@ preceded this.)
   the single advertised discovery path; ensure every command's `--help` exists.
 
 #### 🔵 D-1: image artifacts aren't consumable by a text-only agent model
+
 - Screenshots save fine (533KB PNG) but my current model can't view them, so their
   value is limited to "captured". The snapshot text is what I actually navigate by.
 - Not an AXI departure (it's a model/env limit), but worth noting: the wrapper's
   strongest agent-navigation artifact is the text snapshot, not the screenshot.
 
 ### 3. Walking features
+
 <>
 
 ### 4. Walking research / resources
+
 <>
 
 ### 5. Finalizing the video
+
 <>
 
 ---
@@ -141,6 +154,7 @@ preceded this.)
 ## Findings (deduplicated, sorted by severity)
 
 ### 🔴 Friction (blocked or forced a workaround)
+
 - **F-2** `open` can't see the system browser; error suggests a heavyweight
   `install-browser` instead of the `PLAYWRIGHT_MCP_EXECUTABLE_PATH` override or
   detected channel sessions that the home view already advertises. → principles 4, 6.
@@ -154,6 +168,7 @@ preceded this.)
   advertise that `<command> --help` exists (which does work). → principles 9, 10.
 
 ### 🟡 Pain (extra round-trips, recoverable)
+
 - **P-1** `open` nests the snapshot under `result.result.snapshot.file`.
 - **P-2** truncated `snapshot` is a JSON-string-of-YAML (double-escaped), not
   structured TOON; the `--full` path is cleaner (object form).
@@ -163,10 +178,12 @@ preceded this.)
 - **P-5** SPA navigations need manual `sleep` + re-poll; no auto-wait on click/goto.
 
 ### 🔵 Departure (works, but ergonomic/AXI debt)
+
 - **D-1** image screenshots aren't consumable by a text-only model; the text
   snapshot is the real navigation artifact. (env limit, not strictly AXI.)
 
 ### ✅ What worked well (reinforce these)
+
 - **GOOD-1** bounded result + `--full` escape hatch with `result_truncated` /
   `result_bytes` / `help[]` — principle 3 done right.
 - **GOOD-2** `video-stop` typed artifacts + definitive `other_artifacts: empty`
@@ -201,6 +218,7 @@ structured output at every step. The **video sidecar and typed artifact flow
 project set out to build, and they held up under real use.
 
 The friction clusters in two areas:
+
 1. **Browser/session setup (F-2, F-3)** — the "just open a page" path still
    requires an undocumented env var and pollutes the CWD. This is the highest
    impact fix because it's the very first thing every agent hits.
@@ -212,12 +230,13 @@ upstream arg shapes leak through (P-2, P-3) or where a convenience command is
 missing (P-4, P-5, F-4). All findings are fixable without architectural change.
 
 ### Suggested next iteration (prioritized)
+
 1. **F-2**: detect system Chromium / surface `PLAYWRIGHT_MCP_EXECUTABLE_PATH`
-   + channel sessions in the `missing_browser` error. *(unblocks every session)*
+   - channel sessions in the `missing_browser` error. _(unblocks every session)_
 2. **F-3**: default snapshot/video artifacts to a temp or gitignored dir;
-   document the state-dir override. *(prevents repo pollution)*
+   document the state-dir override. _(prevents repo pollution)_
 3. **F-4**: add a `video-chapters` read command + include chapters in
-   `video-stop`. *(closes the biggest abstraction leak)*
+   `video-stop`. _(closes the biggest abstraction leak)_
 4. **F-1**: advertise `<command> --help` from root `--help`; accept `help <cmd>`.
 5. **P-5**: auto-wait on SPA navigation for `click`/`goto`.
 

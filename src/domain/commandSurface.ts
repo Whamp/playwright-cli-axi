@@ -1,18 +1,28 @@
 export const VIDEO_COMMANDS = [
-  'video-start',
-  'video-stop',
-  'video-chapter',
-  'video-chapters',
-  'video-status',
-  'video-show-actions',
-  'video-hide-actions'
+  "video-start",
+  "video-stop",
+  "video-chapter",
+  "video-chapters",
+  "video-status",
+  "video-show-actions",
+  "video-hide-actions",
 ] as const;
 
 export type VideoCommandName = (typeof VIDEO_COMMANDS)[number];
 
-const RAW_OUTPUT_COMMANDS = new Set(['install-browser']);
-const GLOBAL_FLAGS_WITH_VALUE = new Set(['--session', '-s', '--fields', '--wait']);
-const GLOBAL_BOOLEAN_FLAGS = new Set(['--json', '--raw', '--version', '--full']);
+const RAW_OUTPUT_COMMANDS = new Set(["install-browser"]);
+const GLOBAL_FLAGS_WITH_VALUE = new Set([
+  "--session",
+  "-s",
+  "--fields",
+  "--wait",
+]);
+const GLOBAL_BOOLEAN_FLAGS = new Set([
+  "--json",
+  "--raw",
+  "--version",
+  "--full",
+]);
 
 export function commandName(argv: string[]): string | undefined {
   const index = commandIndex(argv);
@@ -27,7 +37,7 @@ export function commandIndex(argv: string[]): number {
       index += 1;
       continue;
     }
-    if (arg.startsWith('-')) continue;
+    if (arg.startsWith("-")) continue;
     return index;
   }
   return -1;
@@ -41,9 +51,10 @@ export function argsAfterCommand(argv: string[]): string[] {
 export function sessionFromArgv(argv: string[]): string | undefined {
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]!;
-    if (arg.startsWith('-s=')) return nonEmpty(arg.slice(3));
-    if (arg.startsWith('--session=')) return nonEmpty(arg.slice('--session='.length));
-    if (arg === '-s' || arg === '--session') return nonEmpty(argv[index + 1]);
+    if (arg.startsWith("-s=")) return nonEmpty(arg.slice(3));
+    if (arg.startsWith("--session="))
+      return nonEmpty(arg.slice("--session=".length));
+    if (arg === "-s" || arg === "--session") return nonEmpty(argv[index + 1]);
   }
   return undefined;
 }
@@ -53,11 +64,11 @@ function nonEmpty(value: string | undefined): string | undefined {
 }
 
 export function stripJsonFlags(argv: string[]): string[] {
-  return argv.filter((arg) => arg !== '--json');
+  return argv.filter((arg) => arg !== "--json");
 }
 
 /** Value-bearing flags whose argument is a file path the agent names explicitly. */
-const FILE_VALUE_FLAGS = new Set(['--filename', '--path']);
+const FILE_VALUE_FLAGS = new Set(["--filename", "--path"]);
 
 /**
  * F-3: resolve relative file paths against the agent's shell cwd so named
@@ -65,10 +76,14 @@ const FILE_VALUE_FLAGS = new Set(['--filename', '--path']);
  * runs with a different (artifact-dir) cwd. Absolute paths and non-file args
  * are passed through untouched. Inline `flag=value` forms are handled too.
  */
-export function resolveRelativeFilePaths(argv: string[], shellCwd: string): string[] {
+export function resolveRelativeFilePaths(
+  argv: string[],
+  shellCwd: string,
+): string[] {
   const isAbsolute = (p: string) =>
-    p.startsWith('/') || /^[A-Za-z]:[\\/]/.test(p) || p.startsWith('\\\\');
-  const absolutize = (p: string) => (isAbsolute(p) || p === '' ? p : `${shellCwd}/${p}`);
+    p.startsWith("/") || /^[A-Za-z]:[\\/]/.test(p) || p.startsWith("\\\\");
+  const absolutize = (p: string) =>
+    isAbsolute(p) || p === "" ? p : `${shellCwd}/${p}`;
   const result: string[] = [];
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]!;
@@ -105,13 +120,13 @@ export function stripWrapperFlags(argv: string[]): string[] {
   const result: string[] = [];
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]!;
-    if (arg === '--json' || arg === '--full') continue;
-    if (arg === '--fields' || arg === '--wait') {
+    if (arg === "--json" || arg === "--full") continue;
+    if (arg === "--fields" || arg === "--wait") {
       index += 1; // also drop the value token
       continue;
     }
-    if (arg.startsWith('--fields=')) continue;
-    if (arg.startsWith('--wait=')) continue;
+    if (arg.startsWith("--fields=")) continue;
+    if (arg.startsWith("--wait=")) continue;
     result.push(arg);
   }
   return result;
@@ -119,7 +134,7 @@ export function stripWrapperFlags(argv: string[]): string[] {
 
 /** Whether the caller asked for untruncated output (`--full`). */
 export function hasFullFlag(argv: string[]): boolean {
-  return argv.includes('--full');
+  return argv.includes("--full");
 }
 
 /**
@@ -130,18 +145,18 @@ export function parseWaitFlag(argv: string[]): string | undefined {
   let raw: string | undefined;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]!;
-    if (arg.startsWith('--wait=')) raw = arg.slice('--wait='.length);
-    else if (arg === '--wait') raw = argv[index + 1];
+    if (arg.startsWith("--wait=")) raw = arg.slice("--wait=".length);
+    else if (arg === "--wait") raw = argv[index + 1];
     if (raw !== undefined) break;
   }
   if (raw === undefined) return undefined;
   const state = raw.trim();
-  if (['load', 'domcontentloaded', 'networkidle'].includes(state)) return state;
+  if (["load", "domcontentloaded", "networkidle"].includes(state)) return state;
   return undefined;
 }
 
 export function isValidWaitState(state: string): boolean {
-  return ['load', 'domcontentloaded', 'networkidle'].includes(state);
+  return ["load", "domcontentloaded", "networkidle"].includes(state);
 }
 
 /**
@@ -153,11 +168,11 @@ export function parseFieldsFlag(argv: string[]): string[] | undefined {
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]!;
     let raw: string | undefined;
-    if (arg.startsWith('--fields=')) raw = arg.slice('--fields='.length);
-    else if (arg === '--fields') raw = argv[index + 1];
+    if (arg.startsWith("--fields=")) raw = arg.slice("--fields=".length);
+    else if (arg === "--fields") raw = argv[index + 1];
     if (raw === undefined) continue;
     return raw
-      .split(',')
+      .split(",")
       .map((field) => field.trim())
       .filter((field) => field.length > 0);
   }
@@ -173,9 +188,9 @@ export function parseFieldsFlag(argv: string[]): string[] | undefined {
  * `list -v`) continues to pass through to upstream unchanged.
  */
 export function hasVersionFlag(argv: string[]): boolean {
-  const dashDash = argv.indexOf('--');
+  const dashDash = argv.indexOf("--");
   const scope = dashDash === -1 ? argv : argv.slice(0, dashDash);
-  const hasFlag = scope.includes('--version') || scope.includes('-v');
+  const hasFlag = scope.includes("--version") || scope.includes("-v");
   return hasFlag && commandName(argv) === undefined;
 }
 
@@ -183,16 +198,18 @@ export function shouldInjectJson(argv: string[]): boolean {
   const command = commandName(argv);
   if (!command) return false;
   if (RAW_OUTPUT_COMMANDS.has(command)) return false;
-  if (argv.includes('--help') || argv.includes('-h')) return false;
+  if (argv.includes("--help") || argv.includes("-h")) return false;
   return true;
 }
 
-export function isVideoCommand(command: string | undefined): command is VideoCommandName {
+export function isVideoCommand(
+  command: string | undefined,
+): command is VideoCommandName {
   return VIDEO_COMMANDS.includes(command as VideoCommandName);
 }
 
 /** Wrapper-only commands that never forward to upstream. */
-export const WRAPPER_COMMANDS = ['setup', 'context', 'scroll', 'wait'] as const;
+export const WRAPPER_COMMANDS = ["setup", "context", "scroll", "wait"] as const;
 
 export type WrapperCommandName = (typeof WRAPPER_COMMANDS)[number];
 
@@ -219,9 +236,9 @@ function stripGlobalFlags(args: string[]): string[] {
 /** Inline `name=value` forms for value-bearing global flags (space and equals). */
 function isInlineValueFlag(arg: string): boolean {
   return (
-    arg.startsWith('-s=') ||
-    arg.startsWith('--session=') ||
-    arg.startsWith('--fields=') ||
-    arg.startsWith('--wait=')
+    arg.startsWith("-s=") ||
+    arg.startsWith("--session=") ||
+    arg.startsWith("--fields=") ||
+    arg.startsWith("--wait=")
   );
 }

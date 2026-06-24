@@ -158,7 +158,8 @@ const WRAPPER_HELP: Record<string, HelpDefinition> = {
         name: "--scope",
         value: "user|project",
         default: "user",
-        description: "install into ~/.claude and ~/.codex (user) or .claude and .codex in cwd (project)",
+        description:
+          "install into ~/.claude and ~/.codex (user) or .claude and .codex in cwd (project)",
       },
     ],
     examples: [
@@ -183,10 +184,30 @@ const WRAPPER_HELP: Record<string, HelpDefinition> = {
       "playwright-cli-axi scroll [--to <ref> | --top | --bottom | --by <px>]",
     args: [],
     flags: [
-      { name: "--to", value: "<ref>", default: "", description: "snapshot ref to scrollIntoView" },
-      { name: "--top", value: "", default: "", description: "scroll to the top of the page" },
-      { name: "--bottom", value: "", default: "", description: "scroll to the bottom of the page" },
-      { name: "--by", value: "<px>", default: "", description: "scroll by a pixel delta (negative scrolls up)" },
+      {
+        name: "--to",
+        value: "<ref>",
+        default: "",
+        description: "snapshot ref to scrollIntoView",
+      },
+      {
+        name: "--top",
+        value: "",
+        default: "",
+        description: "scroll to the top of the page",
+      },
+      {
+        name: "--bottom",
+        value: "",
+        default: "",
+        description: "scroll to the bottom of the page",
+      },
+      {
+        name: "--by",
+        value: "<px>",
+        default: "",
+        description: "scroll by a pixel delta (negative scrolls up)",
+      },
     ],
     examples: [
       "playwright-cli-axi scroll --to e55",
@@ -202,8 +223,18 @@ const WRAPPER_HELP: Record<string, HelpDefinition> = {
       "playwright-cli-axi wait [--state load|domcontentloaded|networkidle] [--timeout <ms>]",
     args: [],
     flags: [
-      { name: "--state", value: "load|domcontentloaded|networkidle", default: "networkidle", description: "Playwright load state to wait for" },
-      { name: "--timeout", value: "<ms>", default: "5000", description: "maximum time to wait" },
+      {
+        name: "--state",
+        value: "load|domcontentloaded|networkidle",
+        default: "networkidle",
+        description: "Playwright load state to wait for",
+      },
+      {
+        name: "--timeout",
+        value: "<ms>",
+        default: "5000",
+        description: "maximum time to wait",
+      },
     ],
     examples: [
       "playwright-cli-axi wait --state networkidle",

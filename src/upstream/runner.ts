@@ -1,19 +1,19 @@
-import { spawn } from 'node:child_process';
-import { createRequire } from 'node:module';
-import { mkdirSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
+import { mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import {
   resolveRelativeFilePaths,
   shouldInjectJson,
   stripWrapperFlags,
-} from '../domain/commandSurface.js';
+} from "../domain/commandSurface.js";
 import {
   OVERRIDE_ENV_VAR,
   discoverSystemBrowser,
   type DiscoveredBrowser,
-} from '../domain/browserDiscovery.js';
+} from "../domain/browserDiscovery.js";
 
 export interface UpstreamRun {
   argv: string[];
@@ -36,7 +36,7 @@ export interface CreateUpstreamRunnerOptions {
   artifactDir?: string;
 }
 
-export const ARTIFACT_DIR_ENV_VAR = 'PLAYWRIGHT_CLI_AXI_ARTIFACT_DIR';
+export const ARTIFACT_DIR_ENV_VAR = "PLAYWRIGHT_CLI_AXI_ARTIFACT_DIR";
 
 /**
  * F-3: resolve the directory upstream runs in. Auto-generated snapshots
@@ -48,15 +48,20 @@ export function resolveArtifactDir(env: NodeJS.ProcessEnv): string {
   const override = env[ARTIFACT_DIR_ENV_VAR];
   if (override && override.length > 0) return override;
   const cacheHome = env.XDG_CACHE_HOME;
-  const base = cacheHome && cacheHome.length > 0 ? cacheHome : join(tmpdir(), 'playwright-cli-axi-cache');
-  return join(base, 'playwright-cli-axi');
+  const base =
+    cacheHome && cacheHome.length > 0
+      ? cacheHome
+      : join(tmpdir(), "playwright-cli-axi-cache");
+  return join(base, "playwright-cli-axi");
 }
 
-export function createUpstreamRunner(options: CreateUpstreamRunnerOptions): UpstreamRunner {
+export function createUpstreamRunner(
+  options: CreateUpstreamRunnerOptions,
+): UpstreamRunner {
   return async (argv) => {
     const cleanArgv = stripWrapperFlags(argv);
     const usedJson = shouldInjectJson(cleanArgv);
-    const upstreamArgv = usedJson ? ['--json', ...cleanArgv] : cleanArgv;
+    const upstreamArgv = usedJson ? ["--json", ...cleanArgv] : cleanArgv;
     const scriptPath = resolveUpstreamScript();
 
     /*
@@ -66,7 +71,7 @@ export function createUpstreamRunner(options: CreateUpstreamRunnerOptions): Upst
      * detected list to the run so the missing_browser error can name them.
      */
     const discovery = discoverSystemBrowser({ env: options.env });
-    const spawnEnv: NodeJS.ProcessEnv = { ...options.env, NO_COLOR: '1' };
+    const spawnEnv: NodeJS.ProcessEnv = { ...options.env, NO_COLOR: "1" };
     if (!spawnEnv[OVERRIDE_ENV_VAR] && discovery.browser) {
       spawnEnv[OVERRIDE_ENV_VAR] = discovery.browser.path;
     }
@@ -92,23 +97,39 @@ export function createUpstreamRunner(options: CreateUpstreamRunnerOptions): Upst
       const child = spawn(process.execPath, [scriptPath, ...forwardedArgv], {
         cwd: spawnCwd,
         env: spawnEnv,
-        stdio: ['ignore', 'pipe', 'pipe']
+        stdio: ["ignore", "pipe", "pipe"],
       });
-      let stdout = '';
-      let stderr = '';
-      child.stdout.setEncoding('utf8');
-      child.stderr.setEncoding('utf8');
-      child.stdout.on('data', (chunk) => {
+      let stdout = "";
+      let stderr = "";
+      child.stdout.setEncoding("utf8");
+      child.stderr.setEncoding("utf8");
+      child.stdout.on("data", (chunk) => {
         stdout += chunk;
       });
-      child.stderr.on('data', (chunk) => {
+      child.stderr.on("data", (chunk) => {
         stderr += chunk;
       });
-      child.on('error', (error) => {
-        resolve({ argv: cleanArgv, exitCode: 1, stdout: '', stderr: error.message, usedJson, detectedBrowsers: discovery.detected, artifactBase: spawnCwd });
+      child.on("error", (error) => {
+        resolve({
+          argv: cleanArgv,
+          exitCode: 1,
+          stdout: "",
+          stderr: error.message,
+          usedJson,
+          detectedBrowsers: discovery.detected,
+          artifactBase: spawnCwd,
+        });
       });
-      child.on('close', (code) => {
-        resolve({ argv: cleanArgv, exitCode: code ?? 1, stdout, stderr, usedJson, detectedBrowsers: discovery.detected, artifactBase: spawnCwd });
+      child.on("close", (code) => {
+        resolve({
+          argv: cleanArgv,
+          exitCode: code ?? 1,
+          stdout,
+          stderr,
+          usedJson,
+          detectedBrowsers: discovery.detected,
+          artifactBase: spawnCwd,
+        });
       });
     });
   };
@@ -117,11 +138,11 @@ export function createUpstreamRunner(options: CreateUpstreamRunnerOptions): Upst
 export function resolveUpstreamVersion(): string {
   const require = createRequire(import.meta.url);
   try {
-    const packageJsonPath = require.resolve('@playwright/cli/package.json');
+    const packageJsonPath = require.resolve("@playwright/cli/package.json");
     const packageJson = require(packageJsonPath) as { version?: string };
-    return packageJson.version ?? 'unknown';
+    return packageJson.version ?? "unknown";
   } catch {
-    return 'unknown';
+    return "unknown";
   }
 }
 
@@ -136,15 +157,15 @@ export function resolveUpstreamVersion(): string {
 export function resolveWrapperVersion(): string {
   const require = createRequire(import.meta.url);
   try {
-    const packageJsonPath = require.resolve('../../package.json');
+    const packageJsonPath = require.resolve("../../package.json");
     const packageJson = require(packageJsonPath) as { version?: string };
-    return packageJson.version ?? 'unknown';
+    return packageJson.version ?? "unknown";
   } catch {
-    return 'unknown';
+    return "unknown";
   }
 }
 
 function resolveUpstreamScript(): string {
   const require = createRequire(import.meta.url);
-  return require.resolve('@playwright/cli/playwright-cli.js');
+  return require.resolve("@playwright/cli/playwright-cli.js");
 }

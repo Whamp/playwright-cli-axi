@@ -34,8 +34,7 @@ export const CATALOG = {
       "Print the token-budgeted session-start context slice (invoked by the hook).",
     scroll:
       "Scroll the page: --to <ref> (scrollIntoView), --top, --bottom, or --by <px>.",
-    wait:
-      "Wait for a page load state (load|domcontentloaded|networkidle) without manual sleep.",
+    wait: "Wait for a page load state (load|domcontentloaded|networkidle) without manual sleep.",
   } as Record<string, string>,
 };
 
