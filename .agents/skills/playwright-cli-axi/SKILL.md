@@ -70,7 +70,9 @@ The wrapper enhances upstream output for agent usability:
 - **Readable snapshot rendering**: Snapshot content renders as readable single-layer text rather than double-escaped JSON-string-of-YAML, improving parseability.
 - **Enhanced error hints**: Usage errors for commands like `screenshot`, `pdf`, and `snapshot` include inline suggestions (e.g., `--filename <path>`) to reduce trial-and-error.
 - **Absolute snapshot paths**: Auto-generated snapshot file paths are returned as absolute paths so they're reliably findable regardless of the upstream artifact directory.
-- **Flattened eval results**: `eval` and `run-code` commands flatten their single return value to a top-level `result` and undo upstream's JSON encoding, so `eval "location.href"` returns the URL directly (not `result: result: "\"…\""`). Note: `eval` runs in the **browser DOM context** (no `page`); `run-code` runs in the **node context** and receives `page` (use an `async (page) => { ... }` arrow expression).
+- **Flattened eval results**: `eval` and `run-code` commands flatten their single return value to a top-level `result` and undo upstream's JSON encoding, so `eval` of `location.href` returns the URL directly instead of a double-nested, JSON-escaped string. Note: `eval` runs in the **browser DOM context** (no `page`); `run-code` runs in the **node context** and receives `page` (use an `async (page) => { ... }` arrow expression).
+
+
 
 ## Video workflow
 
