@@ -301,6 +301,7 @@ async function runScrollCommand(
   let toRef: string | undefined;
   let byPx: string | undefined;
   let where: "top" | "bottom" | undefined;
+  const scrollFlagsFound: string[] = [];
   for (let i = 0; i < rest.length; i += 1) {
     const a = rest[i]!;
     if (a === "--to") {
@@ -308,20 +309,38 @@ async function runScrollCommand(
       if (next === undefined || next.startsWith("--"))
         return usageError("scroll", "--to requires a reference value");
       toRef = next;
+      scrollFlagsFound.push("--to");
     } else if (a.startsWith("--to=")) {
       toRef = a.slice("--to=".length);
+      scrollFlagsFound.push("--to");
     } else if (a === "--by") {
       const next = rest[i + 1];
       if (next === undefined || next.startsWith("--"))
         return usageError("scroll", "--by requires a pixel value");
       byPx = next;
+      scrollFlagsFound.push("--by");
     } else if (a.startsWith("--by=")) {
       byPx = a.slice("--by=".length);
+      scrollFlagsFound.push("--by");
     } else if (a === "--top") {
       where = "top";
+      scrollFlagsFound.push("--top");
     } else if (a === "--bottom") {
       where = "bottom";
+      scrollFlagsFound.push("--bottom");
     }
+  }
+
+  if (scrollFlagsFound.length > 1) {
+    return usageError(
+      "scroll",
+      `only one scroll action can be specified at a time (found: ${scrollFlagsFound.join(", ")})`,
+      [
+        "playwright-cli-axi scroll --to e55",
+        "playwright-cli-axi scroll --bottom",
+        "playwright-cli-axi scroll --by 600",
+      ],
+    );
   }
   let evalArgv: string[];
   let description: string;
