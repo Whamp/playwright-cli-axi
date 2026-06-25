@@ -1,5 +1,10 @@
 import { canonicalizePath } from "../domain/commandSurface.js";
 import {
+  isUrlLike,
+  parseConsoleMessages,
+  parseTabList,
+} from "../domain/resultShapes.js";
+import {
   BROWSER_TABLE_FIELDS,
   BROWSER_TABLE_FIELDS_ALL,
   CHANNEL_TABLE_FIELDS,
@@ -30,6 +35,19 @@ export interface SuccessOptions {
   fields?: string[];
   /** F-3: cwd upstream ran in; relative returned paths are resolved against it. */
   artifactBase?: string;
+  /** D-2: writer for snapshot text that upstream returns inline. Injected so the
+   * presenter stays pure and testable. */
+  writeFile?: (path: string, contents: string) => void;
+  /** D-2: base directory to write inline snapshots into. */
+  snapshotDir?: string;
+  /** D-2: a unique name seed (e.g. an ISO timestamp) for written snapshot files. */
+  snapshotName?: string;
+  /** D-5: post-action snapshot captured for commands (check/uncheck/press) that
+   * return an empty `{}`. When present, the text is persisted to a file and
+   * surfaced as `snapshot: { file }`, and the target ref's checked state is read. */
+  postSnapshot?: { text: string; dir: string; name: string };
+  /** D-5: the element ref a check/uncheck acted on, used to report `checked`. */
+  targetRef?: string;
 }
 
 export function commandSuccessModel(
@@ -44,6 +62,11 @@ export function commandSuccessModel(
     if (command === "close-all") return closeAllModel(command, parsed.value);
     if (command === "snapshot")
       return snapshotModel(command, parsed.value, options);
+    if (TAB_COMMANDS.has(command))
+      return tabModel(command, parsed.value, options);
+    if (command === "console")
+      return consoleModel(command, parsed.value, options);
+    if (DIALOG_COMMANDS.has(command)) return dialogModel(command, parsed.value);
     if (NAVIGATION_COMMANDS.has(command))
       return navigationModel(command, parsed.value, options);
     if (FLAT_RESULT_COMMANDS.has(command))
@@ -60,7 +83,10 @@ export function commandSuccessModel(
   };
 }
 
-/** Commands whose payload carries an auto-generated snapshot/artifact file (P-1). */
+/** Commands whose payload carries an auto-generated snapshot/artifact file (P-1).
+ * check/uncheck/press do not return a snapshot from upstream (D-5); the CLI
+ * layer captures one and merges it into the payload so these are modeled the
+ * same way as other navigation results. */
 const NAVIGATION_COMMANDS = new Set([
   "open",
   "goto",
@@ -70,15 +96,48 @@ const NAVIGATION_COMMANDS = new Set([
   "select",
   "check",
   "uncheck",
+  "press",
   "hover",
   "drag",
   "drop",
   "reload",
   "go-back",
   "go-forward",
+]);
+
+/** D-3: tab commands return upstream markdown that is re-shaped into a single
+ * structured `tabs[]` shape (ordinal index + current flag + title + real URL). */
+const TAB_COMMANDS = new Set([
+  "tab-list",
   "tab-new",
+  "tab-close",
   "tab-select",
 ]);
+
+/** D-1: dialog commands. Upstream returns an empty `{}` on success; the wrapper
+ * surfaces `handled: true` (+ action/text) so the agent knows the dialog was
+ * cleared instead of seeing a silent no-op. */
+const DIALOG_COMMANDS = new Set(["dialog-accept", "dialog-dismiss"]);
+
+/** D-1: give dialog-accept/dialog-dismiss a definitive `handled: true` result
+ * instead of upstream's empty `{}`. `dialog-accept <text>` echoes the prompt text. */
+function dialogModel(
+  command: string,
+  value: unknown,
+): Record<string, ToonValue> {
+  const base = baseModel(command);
+  // upstream returns `{}` on success; lift any non-empty payload through.
+  const lifted = liftSingleResultValue(value);
+  if (typeof lifted === "object" && lifted !== null && !Array.isArray(lifted)) {
+    const keys = Object.keys(lifted as Record<string, unknown>);
+    if (keys.length > 0) return { ...base, result: toResultValue(lifted) };
+  }
+  return {
+    ...base,
+    handled: true,
+    action: command === "dialog-dismiss" ? "dismiss" : "accept",
+  };
+}
 
 function listModel(
   command: string,
@@ -257,6 +316,10 @@ function familyResultModel(
   // agent can assert emptiness without string-matching display text (AXI
   // principle 5). `found: false` is attached only for the known empty patterns.
   const foundFalse = storageFoundFalse(command, result);
+  // D-7: screenshot/pdf/state-save return a single markdown file link; lift the
+  // link target into a structured `file` field so an agent reads the absolute
+  // path directly instead of parsing `- [Label](path)`.
+  const file = artifactFile(command, result, options.artifactBase);
   const base: Record<string, ToonValue> = {
     ...baseModel(command),
     ...(Object.keys(counts).length > 0 ? { counts } : {}),
@@ -264,6 +327,7 @@ function familyResultModel(
       ? { artifacts: table(["path", "type", "source"], artifacts) }
       : {}),
     ...(foundFalse ? { found: false } : {}),
+    ...(file ? { file } : {}),
   };
   const serialized = safeStringify(result);
   const bytes = Buffer.byteLength(serialized, "utf8");
@@ -357,7 +421,47 @@ function navigationModel(
 
   if (Object.keys(remaining).length > 0) lifted.result = remaining;
   else if (lifted.snapshot === undefined) lifted.result = toResultValue(value);
+  // D-5: for check/uncheck/press (which upstream returns as `{}`), attach the
+  // captured post-action snapshot and, for check/uncheck, the target ref's
+  // checked state so the agent reads the effect without a second call.
+  if (options.postSnapshot && lifted.snapshot === undefined) {
+    const file = writePostSnapshot(options);
+    if (file) lifted.snapshot = resolveSnapshot({ file }, options.artifactBase);
+    if ((command === "check" || command === "uncheck") && options.targetRef) {
+      const checked = refIsChecked(
+        options.postSnapshot.text,
+        options.targetRef,
+      );
+      if (checked !== undefined) lifted.checked = checked;
+    }
+  }
   return lifted;
+}
+
+/** D-5: persist a captured post-action snapshot to the cache; returns the file
+ * path or undefined when the writer/dir is unavailable. */
+function writePostSnapshot(options: SuccessOptions): string | undefined {
+  if (!options.writeFile || !options.postSnapshot) return undefined;
+  const { dir, name, text } = options.postSnapshot;
+  const file = canonicalizePath(
+    `${dir.replace(/\/+$/, "")}/.playwright-cli/${name}.yml`,
+  );
+  try {
+    options.writeFile(file, text);
+    return file;
+  } catch {
+    return undefined;
+  }
+}
+
+/** D-5: read a ref's checked state from a snapshot tree. The a11y line for a
+ * checkbox is `- checkbox [checked] [ref=eN]` (checked) or `- checkbox [ref=eN]`,
+ * so the presence of `[checked]` on the ref's line is the signal. */
+function refIsChecked(snapshotText: string, ref: string): boolean | undefined {
+  const refTag = `[ref=${ref}]`;
+  const line = snapshotText.split("\n").find((l) => l.includes(refTag));
+  if (!line) return undefined;
+  return /\[checked\]/.test(line);
 }
 
 /**
@@ -397,6 +501,25 @@ const STORAGE_READ_COMMANDS = new Set([
   "sessionstorage-list",
 ]);
 
+/** D-7: artifact commands whose upstream result is a single markdown file link
+ * (`- [Label](path)`); the link target is lifted into a structured `file` field. */
+const ARTIFACT_FILE_COMMANDS = new Set(["screenshot", "pdf", "state-save"]);
+
+/** D-7: extract the absolute file path from a single-link artifact result
+ * (`- [Label](path)`). Returns undefined when the result is not a link, so
+ * non-artifact family results are unaffected. */
+function artifactFile(
+  command: string,
+  result: ToonValue,
+  base?: string,
+): string | undefined {
+  if (!ARTIFACT_FILE_COMMANDS.has(command) || typeof result !== "string")
+    return undefined;
+  const m = result.match(/\]\(([^)]+)\)\s*$/);
+  if (!m) return undefined;
+  return resolveAgainst(m[1]!, base ?? "");
+}
+
 /** H3-4: upstream empty/not-found display strings for storage reads. Matching
  * one means the read found nothing, so the model attaches `found: false`. */
 const STORAGE_EMPTY_RE =
@@ -411,6 +534,9 @@ function storageFoundFalse(command: string, result: ToonValue): boolean {
 
 function resolveAgainst(path: string, base: string): string {
   if (path === "") return path;
+  // D-4: real URLs (http/https/mailto) must pass through untouched — joining
+  // them to the artifact base mangled them into /cache/https:/example.com/x.
+  if (isUrlLike(path)) return path;
   const isAbsolute =
     path.startsWith("/") ||
     /^[A-Za-z]:[\\/]/.test(path) ||
@@ -438,6 +564,13 @@ function absolutizeResultPaths(value: ToonValue, base?: string): ToonValue {
  * P-2: render the accessibility-tree snapshot as readable bounded text instead
  * of a double-escaped JSON-string-of-YAML. Truncate the tree with a total
  * char count and the `--full` escape hatch (AXI principle 3).
+ *
+ * D-2: upstream's standalone `snapshot` command returns the tree INLINE as a
+ * string (unlike `open`/`goto`, which return a `{ file }` reference). Inline
+ * multi-line text re-escapes to a single `\n`-laden line under TOON, so when a
+ * writer is available we persist the text to a cache file and return the same
+ * `{ file }` shape navigation uses — making the snapshot readable from either
+ * path. Falls back to bounded inline text when no writer is injected.
  */
 function snapshotModel(
   command: string,
@@ -455,6 +588,20 @@ function snapshotModel(
   if (text.length === 0) {
     return { ...base, result: toResultValue(value) };
   }
+  if (options.writeFile && options.snapshotDir && options.snapshotName) {
+    const file = canonicalizePath(
+      `${options.snapshotDir.replace(/\/+$/, "")}/.playwright-cli/${options.snapshotName}.yml`,
+    );
+    try {
+      options.writeFile(file, text);
+      return {
+        ...base,
+        snapshot: resolveSnapshot({ file }, options.artifactBase),
+      };
+    } catch {
+      // Fall through to bounded inline text if the cache dir is unwritable.
+    }
+  }
   if (options.full || text.length <= 1200) {
     return { ...base, snapshot: text };
   }
@@ -464,6 +611,68 @@ function snapshotModel(
     snapshot_truncated: true,
     snapshot_chars: text.length,
     help: [`playwright-cli-axi snapshot --full`],
+  };
+}
+
+/**
+ * D-3: re-shape upstream tab markdown into one structured `tabs[]` table across
+ * all four tab commands, with the real (un-mangled) URL. Falls back to the
+ * lifted raw value when the payload is not a tab list.
+ */
+function tabModel(
+  command: string,
+  value: unknown,
+  options: SuccessOptions,
+): Record<string, ToonValue> {
+  const base = baseModel(command);
+  const raw = liftSingleResultValue(value);
+  const tabs = parseTabList(typeof raw === "string" ? raw : "");
+  if (tabs.length === 0) return { ...base, result: toResultValue(raw) };
+  return {
+    ...base,
+    tabs: {
+      count: tabs.length,
+      current: tabs.filter((t) => t.current).length,
+    },
+    tab_rows: table(
+      ["index", "current", "title", "url"],
+      tabs.map((t) => ({
+        index: t.index,
+        current: t.current,
+        title: t.title,
+        url: t.url,
+      })),
+    ),
+    ...(options.full ? { result: toResultValue(raw) } : {}),
+  };
+}
+
+/**
+ * D-7: parse upstream's console display string into structured totals + a
+ * per-message table (severity/text). Falls back to the raw display string when
+ * the upstream header is absent.
+ */
+function consoleModel(
+  command: string,
+  value: unknown,
+  options: SuccessOptions,
+): Record<string, ToonValue> {
+  const base = baseModel(command);
+  const raw = liftSingleResultValue(value);
+  const parsed = parseConsoleMessages(typeof raw === "string" ? raw : "");
+  if (!parsed) return { ...base, result: toResultValue(raw) };
+  return {
+    ...base,
+    totals: {
+      messages: parsed.totals.messages,
+      errors: parsed.totals.errors,
+      warnings: parsed.totals.warnings,
+    },
+    messages: table(
+      ["severity", "text"],
+      parsed.messages.map((m) => ({ severity: m.severity, text: m.text })),
+    ),
+    ...(options.full ? { result: toResultValue(raw) } : {}),
   };
 }
 

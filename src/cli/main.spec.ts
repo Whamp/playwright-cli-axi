@@ -1089,6 +1089,10 @@ async function createHarness(
   options: {
     pageOpen?: "open" | "closed";
     validation?: { activeIsInvalid: boolean; fields?: unknown[] };
+    /** D-8: pages the validation probe should report (simulating a popup). */
+    pages?: unknown[];
+    /** D-1: make the validation probe fail with this error text (modal state). */
+    validationError?: string;
   } = {},
 ) {
   const stateRoot = await mkdtemp(join(tmpdir(), "playwright-cli-axi-test-"));
@@ -1096,6 +1100,8 @@ async function createHarness(
   const upstreamRuns: string[][] = [];
   const pageOpen = options.pageOpen ?? "open";
   const validation = options.validation;
+  const pages = options.pages;
+  const validationError = options.validationError;
   const deps: CliDependencies = {
     cwd,
     executablePath: "/home/will/.local/bin/playwright-cli-axi",
@@ -1130,16 +1136,26 @@ async function createHarness(
         typeof argv[1] === "string" &&
         argv[1].includes("pca-validation-probe")
       ) {
+        if (validationError) {
+          return {
+            argv,
+            exitCode: 1,
+            stdout: JSON.stringify({ isError: true, error: validationError }),
+            stderr: "",
+            usedJson: true,
+          };
+        }
         // run-code wraps its return value in { result: "<json>" }, matching the
-        // real upstream contract the probe unwraps.
+        // real upstream contract the probe unwraps. D-8: include pages when the
+        // test simulates a spawned tab.
+        const probe = validation ?? { activeIsInvalid: false, fields: [] };
+        const payload = pages
+          ? { ...probe, pages, pageCount: pages.length }
+          : probe;
         return {
           argv,
           exitCode: 0,
-          stdout: JSON.stringify({
-            result: JSON.stringify(
-              validation ?? { activeIsInvalid: false, fields: [] },
-            ),
-          }),
+          stdout: JSON.stringify({ result: JSON.stringify(payload) }),
           stderr: "",
           usedJson: true,
         };
@@ -1189,3 +1205,139 @@ async function createHarness(
     },
   };
 }
+
+// ---- D-1 / D-8: dogfooding fixes (dialogs + spawned tabs) ----
+
+describe("runCli D-1: native dialogs", () => {
+  it("--dialog accept:<text> handles the dialog atomically and stays usable", async () => {
+    const harness = await createHarness([
+      { stdout: '{"snapshot":{"file":"p.yml"}}' }, // click opens a prompt
+      { stdout: "{}" }, // dialog-accept clears it
+    ]);
+    const result = await harness.run([
+      "click",
+      "e16",
+      "--dialog",
+      "accept:Alice",
+    ]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("dialog:");
+    expect(result.stdout).toContain("handled: true");
+    expect(result.stdout).toContain("action: accept");
+    expect(result.stdout).toContain("text: Alice");
+    // the --dialog flag is stripped from the forwarded click argv
+    expect(harness.upstreamRuns[0]).toEqual(["click", "e16"]);
+    expect(harness.upstreamRuns[1]).toEqual(["dialog-accept", "Alice"]);
+  });
+
+  it("a click that leaves a dialog pending surfaces dialog: pending", async () => {
+    // The validation probe fails with "does not handle the modal state" when a
+    // plain click left a dialog open; the wrapper reports it instead of wedging.
+    const harness = await createHarness(
+      [{ stdout: '{"snapshot":{"file":"p.yml"}}' }], // click opens alert
+      {
+        validationError:
+          'Error: Tool "browser_run_code_unsafe" does not handle the modal state.',
+      },
+    );
+    const result = await harness.run(["click", "e12"]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("dialog:");
+    expect(result.stdout).toContain("pending: true");
+  });
+
+  it("a modal-state error from any command is actionable (modal_pending)", async () => {
+    const harness = await createHarness([
+      {
+        stdout:
+          '{"isError":true,"error":"Error: Tool browser_evaluate does not handle the modal state."}',
+        exitCode: 1,
+      },
+    ]);
+    const result = await harness.run(["eval", "() => 1"]);
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain("kind: modal_pending");
+    expect(result.stdout).toContain("dialog-accept");
+    expect(result.stdout).toContain("dialog-dismiss");
+  });
+});
+
+describe("runCli D-8: spawned tabs", () => {
+  it("surfaces new_tabs when a click spawns a popup", async () => {
+    const harness = await createHarness(
+      [{ stdout: '{"snapshot":{"file":"p.yml"}}' }],
+      {
+        pages: [
+          { index: 0, current: true, url: "https://app/windows", title: "App" },
+          {
+            index: 1,
+            current: false,
+            url: "https://app/windows/new",
+            title: "New Window",
+          },
+        ],
+      },
+    );
+    const result = await harness.run(["click", "e9"]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("new_tabs[");
+    expect(result.stdout).toContain("https://app/windows/new");
+  });
+
+  it("does not report new_tabs for a normal single-tab click", async () => {
+    const harness = await createHarness(
+      [{ stdout: '{"snapshot":{"file":"p.yml"}}' }],
+      {
+        pages: [{ index: 0, current: true, url: "https://app/", title: "App" }],
+      },
+    );
+    const result = await harness.run(["click", "e5"]);
+    expect(result.exitCode).toBe(0);
+    // TOON renders arrays as `new_tabs[N]:`, so match the bare key to actually
+    // catch a regression (the trailing-colon form can never match).
+    expect(result.stdout).not.toContain("new_tabs");
+  });
+});
+
+describe("runCli D-5: post-action snapshot for empty-result commands", () => {
+  // RED-1 (review): the D-5 wiring (runSnapshotText -> postSnapshot ->
+  // writePostSnapshot -> refIsChecked) is exercised here at the integration
+  // layer, not just via presenter-level injection. Without these, deleting the
+  // wiring would leave every test green.
+  it("check captures a post-snapshot and reports checked:true", async () => {
+    const snapshotBody =
+      "- checkbox [checked] [ref=e10]: Option A\n- button [ref=e5]";
+    const harness = await createHarness([
+      { stdout: "{}" }, // upstream check returns empty
+      { stdout: JSON.stringify({ snapshot: snapshotBody }) }, // captured snapshot
+    ]);
+    const result = await harness.run(["check", "e10"]);
+    expect(result.exitCode).toBe(0);
+    // proves runSnapshotText fired the snapshot call (the wiring is live)
+    expect(harness.upstreamRuns).toEqual([["check", "e10"], ["snapshot"]]);
+    expect(result.stdout).toContain("checked: true");
+  });
+
+  it("uncheck reports checked:false when the ref is not [checked]", async () => {
+    const snapshotBody = "- checkbox [ref=e11]: Option B\n- button [ref=e5]";
+    const harness = await createHarness([
+      { stdout: "{}" },
+      { stdout: JSON.stringify({ snapshot: snapshotBody }) },
+    ]);
+    const result = await harness.run(["uncheck", "e11"]);
+    expect(result.exitCode).toBe(0);
+    expect(harness.upstreamRuns).toEqual([["uncheck", "e11"], ["snapshot"]]);
+    expect(result.stdout).toContain("checked: false");
+  });
+
+  it("press issues the post-snapshot probe", async () => {
+    const snapshotBody = "- button [ref=e9]";
+    const harness = await createHarness([
+      { stdout: "{}" },
+      { stdout: JSON.stringify({ snapshot: snapshotBody }) },
+    ]);
+    const result = await harness.run(["press", "Enter"]);
+    expect(result.exitCode).toBe(0);
+    expect(harness.upstreamRuns).toEqual([["press", "Enter"], ["snapshot"]]);
+  });
+});

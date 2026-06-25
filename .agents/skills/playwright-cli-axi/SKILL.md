@@ -62,6 +62,26 @@ Navigation commands (`open`, `goto`, `click`, `dblclick`, etc.) support two opti
 
 After a submit-triggering `click` or `dblclick`, the wrapper probes HTML5 constraint validation and surfaces `validation: { ok: false, invalid_fields: [...] }` when the browser appears to have blocked the submit (focused an invalid field). HTML5 validation bubbles are not in the accessibility tree, so without this probing, a submit blocked by an invalid field looks identical to a successful submit. The primary click result and exit code are preserved either way.
 
+### Native dialog handling (alert/confirm/prompt)
+
+A click that opens a JS dialog leaves the modal pending in upstream, which wedges every later command with an opaque `does not handle the modal state` error. The wrapper handles this in two ways:
+
+- `click`/`dblclick --dialog accept:<text>|accept|dismiss` — handle the dialog atomically in the same call. Use `accept:<text>` for a `window.prompt` that must submit text. The result surfaces `dialog: { handled: true, action, text }` and the page stays usable (no `close`+`open` recovery needed).
+- A plain click that leaves a dialog pending surfaces `dialog: { pending: true }`, and any command that hits the wedged state returns a `modal_pending` error pointing at `dialog-accept`/`dialog-dismiss` instead of a dead-end.
+
+### Interaction post-state and spawned tabs
+
+- `check`/`uncheck` report the target ref's `checked` boolean and attach a post-action snapshot; `press`/`hover` attach a snapshot too, so the effect is visible without a separate read.
+- When a `click`/`dblclick` spawns a new tab or window, the result surfaces `new_tabs[]` (piggy-backed on the validation probe, so it adds no extra round-trip).
+
+### Structured tab, console, and artifact results
+
+- Tab commands (`tab-list`, `tab-new`, `tab-select`, `tab-close`) return one structured `tab_rows` table (`index`, `current`, `title`, `url`) with the real URL, instead of escaped markdown or a double-nested `result.result`.
+- `console` returns `totals` (`messages`/`errors`/`warnings`) plus a per-message `messages` table, instead of a flattened display string.
+- `screenshot`/`pdf`/`state-save` lift their file link into a structured `file` field (absolute path) alongside the existing result.
+- The standalone `snapshot` command writes its tree to a cache file and returns `snapshot: { file }`, matching navigation results (no more double-escaped inline text).
+- Upstream error messages are stripped of ANSI colour/dim escapes, so TOON `message` fields stay clean plain text.
+
 ### Output improvements
 
 The wrapper enhances upstream output for agent usability:

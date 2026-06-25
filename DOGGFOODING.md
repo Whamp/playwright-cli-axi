@@ -771,3 +771,320 @@ snapshots stay absolute (P-1), video-start still guards/absolutizes (N-8/N-9).
   → single-level `result`.
 - `screenshot --filename ./shot.png` → `- [Screenshot](/cwd/shot.png)`.
 - `localstorage-list`/`cookie-list`/`cookie-get nope` empty → `found: false`.
+
+---
+
+## Dogfood #4 — Interaction primitives & diagnostics (2026-06-25, HEAD `64a2f5b`)
+
+**Task:** Drive the real public app `the-internet.herokuapp.com` (purpose-built for
+interaction primitives) and exercise the surfaces the earlier rounds barely
+touched: native dialogs, drag/drop, multiple windows (tabs), keyboard, hover,
+checkbox toggles, PDF, console, and the `generate-locator`/`highlight` diagnostics.
+
+**Build:** local `dist` freshly built from HEAD (`0.1.0` / upstream
+`@playwright/cli` `0.1.14`), run as `node dist/bin/playwright-cli-axi.js`.
+
+**Why this task:** prior rounds covered navigation, video, forms, storage, and
+network. The dialog / tab / drag / keyboard / diagnostics commands were
+unproven on a live app. Findings below are all reconfirmed against the current
+build (a false-positive on `run-code` was caught and dropped before logging —
+see Positives).
+
+### 🔴 Friction
+
+#### 🔴 D-1 — Native dialog surface is unusable and bricks the session (CRITICAL)
+
+Real flow: open `/javascript_alerts`, click "Click for JS Prompt" (`e16`) to
+trigger `window.prompt()`, and try to submit text.
+
+- `click e16` →
+  `error: kind: upstream_error / message: "Error: Tool \"browser_click\" does not handle the modal state."`
+  The click that opens the dialog errors instead of completing.
+- The dialog is then auto-handled by upstream's default handler, so the agent
+  gets **no control** over accept vs. dismiss vs. prompt text.
+- `dialog-accept "Alice"` → `command: dialog-accept / status: ok / result: {}`
+  — a silent no-op.
+- `dialog-dismiss` →
+  `error: "Cannot dismiss dialog which is already handled!"` — confirms upstream
+  already disposed of it.
+- **Deadlock:** afterwards, every modal-aware tool (`click`, `run-code`,
+  `snapshot`) keeps failing with `does not handle the modal state`, even though
+  the dialog is gone. Only `eval` (pure DOM context) sneaks through. The
+  `run-code` call I used to inspect `#result` returned `result: {}` for this
+  same reason — initially looked like a `run-code` bug until a clean-session
+  retest proved `run-code` returns values fine (see Positives).
+- **Recovery:** `close` + `open` (full session restart). Nothing shorter works.
+
+Why it hurts: the entire `dialog-accept` / `dialog-dismiss` family is dead
+weight in a natural click→dialog→handle flow, and a single native dialog
+takes the whole session down with no structured recovery hint.
+
+AXI: **6 (structured errors)** — the modal error's only `help[]` is
+`playwright-cli-axi --help`, no "run close+open to recover" guidance; **9
+(discoverability)** — there is no way to pre-arm a handler from the shell.
+
+Suggested fix: either (a) arm a one-shot handler before the click
+(`dialog-accept --next "Alice"`), or (b) accept a `--dialog accept:Alice`
+flag on `click`/`dblclick` (mirrors the existing HTML5-validation probe
+pattern), and (c) when `does not handle the modal state` fires, emit an
+actionable `help[]` pointing at `close` + `open` (or auto-clear the stale
+modal flag).
+
+### 🟡 Pain
+
+#### 🟡 D-2 — Standalone `snapshot` command still double-encodes (regression vs. skill doc)
+
+Navigation results (`open`/`goto`/`click`) return a clean
+`snapshot: { file: <abs path> }`. But the standalone `snapshot` command
+returns the whole tree as one escaped JSON-string-of-YAML:
+
+```
+snapshot: "- generic [ref=e1]:\n  - generic [ref=e4]:\n    - link \"Fork me...
+```
+
+The skill doc claims "Snapshot content renders as readable single-layer text
+rather than double-escaped JSON-string-of-YAML." That fix landed on the
+navigation path but **not** on the `snapshot` command itself — so the cheapest
+way to re-read a page still hands an agent an escaped blob. Either return a
+`file:` path like the navigation path does, or emit real multi-line rows.
+
+#### 🟡 D-3 — Tab commands have three different (and wrong) result shapes
+
+Against `/windows` after spawning a second tab:
+
+- `tab-list` → `result: "- 0: (current) [The Internet](...)\n- 1: [New Window](...)"`
+  — a single escaped **markdown string** with literal `\n`, not structured rows.
+- `tab-select 1` → `result: { result: "- 0: ...\n- 1: ..." }` — **double-nested**
+  (`result.result`), the exact nesting the wrapper exists to remove.
+- `tab-close 1` → `result: "- 0: (current) ..."` — escaped markdown again.
+
+An agent must unescape and parse markdown just to learn tab indices. The four
+tab commands should agree on one structured shape (e.g. `tabs[]` with
+`{index, current, title, url}`), matching the home view's `*_rows` convention.
+
+#### 🟡 D-4 — Tab URLs are mangled into fake filesystem paths (inconsistently)
+
+`tab-list` and `tab-close` render the URL as a cache path:
+
+```
+/tmp/playwright-cli-axi-cache/playwright-cli-axi/https:/the-internet.herokuapp.com/windows
+```
+
+(note the single slash in `https:/`). `tab-select`, in the same session,
+shows the **real** URL (`https://the-internet.herokuapp.com/windows/new`). The
+mangled form is misleading and the inconsistency is pointless; all tab
+commands should print the real URL.
+
+#### 🟡 D-5 — Interaction commands return `result: {}` (no state feedback)
+
+`press Tab`, `hover e11`, `check e10`, `uncheck e11` all return
+`status: ok / result: {}`. To confirm the actual effect ("You entered: TAB",
+the tooltip caption, the checkbox's new state) the agent must issue a separate
+`snapshot`. These commands already change the page; returning the new state
+(or at least the affected element's post-state) would halve the round-trips.
+
+#### 🟡 D-6 — ANSI escape codes leak into the structured error `message`
+
+A wrong-ref `check e4` produced:
+
+```
+message: "Error: Error: Not a checkbox or radio button Call log: \u001b[2m - waiting for locator('aria-ref(e4')\u001b[22m \u001b[2m - locator resolved to <div ...>\u001b[22m"
+```
+
+Raw `\u001b[2m` / `\u001b[22m` terminal escapes pollute the TOON `message`
+field. The error _content_ is good (it named the resolved element), but the
+escapes should be stripped before the wrapper emits the error.
+
+#### 🟡 D-7 — `console` and `pdf` results are display strings, not structured fields
+
+- `console` → `result: "Total messages: 1 (Errors: 1, Warnings: 0)\n\nTypeError: Cannot read properties of undefined (reading 'xyz')\n    at loadError (...)"`.
+  Useful and it caught a real error, but it's a flattened display string with
+  literal `\n` — no `errors[]` / `warnings[]` arrays or severity fields.
+- `pdf --filename /tmp/dogfood4/page.pdf` →
+  `result: "- [Page as pdf](/tmp/dogfood4/page.pdf)"` — a markdown link string,
+  not a `{ file }` field, despite the file being correctly written to the
+  requested absolute path.
+
+Both work; both would be cheaper to consume as structured fields matching the
+flattened-file convention used elsewhere.
+
+### 🔵 Departure
+
+#### 🔵 D-8 — `click` that spawns a new tab gives no signal a tab opened
+
+Clicking the `/windows` "Click Here" link returned plain `ok` with no hint that
+a second tab was created; focus stayed on tab 0. The agent only learns a tab
+appeared by separately running `tab-list`. The wrapper already probes for
+HTML5-validation side effects after a submit; an analogous `new_tabs: [...]`
+hint on `click` would close the gap.
+
+### ✅ What worked well (reinforce)
+
+- **Browser auto-detection (no env var):** `open https://the-internet.herokuapp.com`
+  worked with nothing set — the earlier F-2 friction is genuinely fixed. Home
+  view shows the derived `usable` field.
+- **`drag e10 e12`:** worked first try; columns swapped A,B → B,A; returned a
+  flattened `snapshot.file` path.
+- **`hover e11`:** revealed the `name: user1` tooltip caption + "View profile"
+  link via the following snapshot.
+- **`tab-select 1`:** actually switched the visible page — verified with
+  `eval "document.title + ' | ' + location.pathname"` →
+  `result: New Window | /windows/new`. (Tab _output shape_ is the problem, not
+  the behavior.)
+- **`pdf`:** produced a real 25 KB file at the requested absolute path.
+- **`console`:** captured a real `TypeError` with full stack trace from
+  `/javascript_error`.
+- **`generate-locator e10`** → `result: getByRole('checkbox').first()` and
+  **`highlight e10`** → `result: Highlighted locator('aria-ref(e10)')` — both
+  clean, flattened, immediately usable.
+- **`eval`** flattens (`1+1` → `result: 2`); **`run-code`** returns structured
+  values in a clean session (`run-code 'async (page) => ({url:..., title:...})'`
+  → `result: { url, title }`). (The earlier `run-code result: {}` was caused by
+  D-1's modal deadlock, not a `run-code` bug — reconfirmed and not logged as one.)
+- **Navigation snapshots** flattened to top-level `snapshot.file` and land in
+  the cache dir — P-1 / F-3 fixes hold.
+
+### Deliverables produced
+
+- `/tmp/dogfood4/page.pdf` (real PDF of `/checkboxes`).
+- Per-command raw TOON captures in `/tmp/dogfood4/0[1-2]-*.txt`.
+
+### Verdict
+
+The interaction/diagnostics surface is **mostly solid** — drag, hover, tabs
+(behavior), pdf, console, generate-locator, highlight, eval, and run-code all
+deliver. The one **🔴 blocker** is native dialogs: `dialog-accept`/`dismiss`
+can't be used in a real flow and a single dialog deadlocks the session until
+`close`+`open`. Beyond that, the recurring theme is **inconsistent result
+shapes**: `snapshot` double-encodes, the four tab commands disagree on
+structure, tab URLs are inconsistently mangled, and interaction/console/pdf
+commands return empty-or-display-string results instead of structured fields.
+Fixing D-1 and normalizing result shapes (D-2..D-7) would remove almost all
+remaining round-trip cost for an agent.
+
+### Suggested next iteration (prioritized)
+
+1. **D-1** — make dialogs drivable (`--dialog accept:<text>` on click, or
+   `dialog-accept --next`) and recover gracefully from the stale modal flag;
+   add an actionable `help[]` to the modal-state error.
+2. **D-3 + D-4** — one structured `tabs[]` shape across all four tab commands,
+   with real URLs.
+3. **D-2** — make the standalone `snapshot` command return a `file:` path (or
+   real rows) like navigation results.
+4. **D-6** — strip ANSI escapes from upstream error `message`s.
+5. **D-5** — have `press`/`hover`/`check`/`uncheck` return post-state instead
+   of `{}`.
+6. **D-7** — structure `console` (`errors[]`/`warnings[]`) and `pdf` (`file`).
+7. **D-8** — `new_tabs` hint on `click`.
+
+---
+
+## Dogfood #4 — Resolution (2026-06-25, HEAD post-fixes)
+
+All eight findings (D-1 through D-8) are fixed, verified live against
+`the-internet.herokuapp.com`, and covered by 20 new tests (full suite 292 green,
++52 property tests, typecheck clean, `check:skill` in sync). SKILL.md
+regenerated from `catalog.ts` to document the new contracts.
+
+### D-1 🔴 — Native dialogs no longer brick the session (FIXED)
+
+The root cause: upstream `click` returns a snapshot **success** but leaves the
+JS modal **pending**, wedging every later command. Two complementary fixes:
+
+- **`--dialog accept:<text>|accept|dismiss` on `click`/`dblclick`** handles the
+  dialog atomically in the same call (the wrapper runs `dialog-accept`/`dismiss`
+  right after the click; a click that opened no dialog is a suppressed no-op).
+- **Plain clicks** surface `dialog: { pending: true }` (detected via the
+  existing post-click run-code probe failing with "does not handle the modal
+  state"), and **any** command hitting the wedged state returns an actionable
+  `modal_pending` error pointing at `dialog-accept`/`dialog-dismiss` — no more
+  opaque dead-end.
+
+Live evidence (no `close`+`open` recovery anywhere):
+
+- `click e16 --dialog accept:Alice` → `dialog: { handled: true, action: accept,
+text: Alice }`; `eval #result` → `You entered: Alice`; `eval 1+1` → `2`
+  (session usable).
+- `click e14 --dialog dismiss` → `handled: true, action: dismiss`; result
+  `You clicked: Cancel`.
+- Plain `click e12` then `eval` → `kind: modal_pending`, message "a browser
+  dialog … is blocking all commands", `help[]` lists `dialog-accept`/`dismiss`
+  and the `--dialog` flag.
+
+Tests: `main.spec.ts` "D-1: --dialog accept:<text> …", "… dialog: pending",
+"… modal_pending".
+
+### D-2 🟡 — Standalone `snapshot` returns `{ file }` (FIXED)
+
+Upstream's standalone `snapshot` returns the tree inline; TOON re-escapes a
+multi-line string to one `\n`-laden line. The wrapper now writes that text to a
+cache file (like navigation) and returns `snapshot: { file: <abs path> }`.
+Live: `snapshot` → `snapshot: { file: /tmp/…/2026-…Z.yml }`.
+Tests: `success.spec.ts` "D-2: snapshot writes inline text …" + fallback.
+
+### D-3 🟡 — One structured tab shape across all four tab commands (FIXED)
+
+New `tabModel` parses upstream markdown into a `tab_rows` table
+(`index`, `current`, `title`, `url`); `tab-new`/`tab-select` were removed from
+the navigation set so they no longer double-nest as `result.result`.
+Live: `tab-list` → `tab_rows[N]{index,current,title,url}`; `tab-select` → same,
+no `result: result:`.
+Tests: `success.spec.ts` "D-3: tab-list …", "D-3: tab-select …"; pure
+`parseTabList` in `resultShapes.spec.ts`.
+
+### D-4 🟡 — Tab URLs no longer mangled (FIXED)
+
+Root cause: the wrapper's path resolver joined markdown link targets
+(`](https://…)`) against the artifact base. `isUrlLike()` now treats URL schemes
+as already-absolute, so the real URL survives everywhere.
+Live: `tab_rows` shows `https://the-internet.herokuapp.com/windows/new`, never
+`https:/…` or a cache path.
+Tests: `resultShapes.spec.ts` `isUrlLike`; `success.spec.ts` "D-3: … unmangled".
+
+### D-5 🟡 — Interaction commands return post-state (FIXED)
+
+`check`/`uncheck`/`press` returned `{}`. The wrapper now captures a post-action
+snapshot and attaches `snapshot: { file }`; `check`/`uncheck` additionally
+report the target ref's `checked` boolean (parsed from the fresh snapshot).
+Live: `check e10` → `checked: true` + snapshot; `uncheck e11` → `checked: false`;
+`press Tab` → snapshot (the agent reads "You entered: TAB" from it).
+Tests: `success.spec.ts` "D-5: check …", "D-5: uncheck …".
+
+### D-6 🟡 — ANSI escapes stripped from error messages (FIXED)
+
+`stripAnsi()` (CSI regex) runs in the error sanitizer, so Playwright's `\x1b[2m`
+dim codes no longer leak into TOON `message` fields.
+Live: `check e4` (wrong ref) → clean `Call log: - waiting for locator('aria-ref=e4')`
+with no `\u001b`.
+Tests: `resultShapes.spec.ts` `stripAnsi`.
+
+### D-7 🟡 — `console` and `pdf` are structured (FIXED)
+
+- `console` → `totals: { messages, errors, warnings }` + a `messages` table
+  (`severity`, `text`), parsed from upstream's display string.
+- `screenshot`/`pdf`/`state-save` lift their file link into a structured `file`
+  field (absolute path) alongside the existing result.
+
+Live: `console` → `totals: { messages:1, errors:1, warnings:0 }` +
+`messages[1]{severity,text}`; `pdf` → `file: /tmp/dogfood4/live.pdf` (25 KB file
+written).
+Tests: `resultShapes.spec.ts` `parseConsoleMessages`; `success.spec.ts`
+"D-7: console …", "D-7: pdf …".
+
+### D-8 🔵 — Spawned tabs are surfaced (FIXED)
+
+The post-click validation probe now also reports the context's open pages, so a
+`click`/`dblclick` that spawns a popup surfaces `new_tabs[]` with **zero extra
+round-trips** (every upstream call is ~1-2s, so piggy-backing keeps the common
+single-tab click fast).
+Live: `click e9` (opens `/windows/new`) →
+`new_tabs[1]: { index: 1, title: New Window, url: https://…/windows/new }`.
+Tests: `commandSurface.spec.ts` "validationProbeCode (D-8)";
+`main.spec.ts` "D-8: spawned tabs" + "… no new_tabs for a normal click".
+
+### No regressions
+
+Re-confirmed live after the fixes: browser auto-detection (F-2), flattened
+navigation snapshots (P-1/F-3), flattened eval/run-code, storage/network
+flattening, `found: false` empty states, `drag`/`hover` (still return snapshots),
+and the C-1 HTML5-validation probe. Full suite + property tests green.

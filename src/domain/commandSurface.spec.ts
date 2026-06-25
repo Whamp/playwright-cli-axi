@@ -7,6 +7,7 @@ import {
   isValidWaitState,
   parseFieldsFlag,
   parseSettleFlag,
+  parseDialogFlag,
   parseWaitFlag,
   resolveRelativeFilePaths,
   sessionFromArgv,
@@ -356,5 +357,59 @@ describe("validationProbeCode (C-1)", () => {
     expect(code).toContain(":invalid");
     expect(code).toContain("activeIsInvalid");
     expect(code).toContain("validationMessage");
+  });
+});
+
+describe("parseDialogFlag (D-1)", () => {
+  it("parses accept:<text> for a prompt", () => {
+    expect(
+      parseDialogFlag(["click", "e16", "--dialog", "accept:Alice"]),
+    ).toEqual({ action: "accept", text: "Alice" });
+    expect(parseDialogFlag(["click", "e16", "--dialog=accept:Alice"])).toEqual({
+      action: "accept",
+      text: "Alice",
+    });
+  });
+
+  it("parses a bare dismiss", () => {
+    expect(parseDialogFlag(["click", "e14", "--dialog", "dismiss"])).toEqual({
+      action: "dismiss",
+    });
+  });
+
+  it("parses a bare accept (alert/confirm with no prompt text)", () => {
+    expect(parseDialogFlag(["click", "e12", "--dialog", "accept"])).toEqual({
+      action: "accept",
+    });
+  });
+
+  it("treats a bare value as accept-with-text", () => {
+    expect(parseDialogFlag(["click", "e16", "--dialog", "Bob"])).toEqual({
+      action: "accept",
+      text: "Bob",
+    });
+  });
+
+  it("returns undefined when absent", () => {
+    expect(parseDialogFlag(["click", "e16"])).toBeUndefined();
+  });
+
+  it("stripWrapperFlags drops --dialog and its value", () => {
+    expect(
+      stripWrapperFlags(["click", "e16", "--dialog", "accept:Alice"]),
+    ).toEqual(["click", "e16"]);
+    expect(stripWrapperFlags(["click", "e16", "--dialog=dismiss"])).toEqual([
+      "click",
+      "e16",
+    ]);
+  });
+});
+
+describe("validationProbeCode (D-8)", () => {
+  it("also reports open pages so a spawned tab can be surfaced", () => {
+    const code = validationProbeCode();
+    expect(code).toContain("pageCount");
+    expect(code).toContain(".pages()");
+    expect(code).toContain("currentUrl");
   });
 });

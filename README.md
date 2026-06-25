@@ -71,6 +71,11 @@ The wrapper enhances upstream output for agent usability:
 - **Flattened storage/network results**: storage read commands (`cookie-get/list`, `localstorage-*`, `sessionstorage-*`), network commands (`requests`, `request`, `route`, `route-list`, `unroute`, `network-state-set`), and `screenshot`/`pdf`/`state-save`/`state-load` lift their single return value to a top-level `result` instead of double-nesting as `result: result: <value>`.
 - **Definitive storage empty states**: storage read commands attach `found: false` when nothing matches, so emptiness is machine-readable instead of requiring display-string matching.
 - **Findable storage files**: `state-save`/`state-load` relative filenames are resolved against your shell cwd (not the daemon's artifact directory), so saved session state round-trips reliably across a close/open.
+- **Structured tab results**: Tab commands (`tab-list`, `tab-new`, `tab-select`, `tab-close`) return one structured `tab_rows` table (`index`, `current`, `title`, `url`) with the real URL, instead of escaped markdown or a double-nested `result.result`.
+- **Structured console results**: `console` returns `totals` (`messages`/`errors`/`warnings`) plus a per-message `messages` table, instead of a flattened display string.
+- **Structured artifact file fields**: `screenshot`/`pdf`/`state-save` lift their file link into a structured `file` field (absolute path) alongside the existing result.
+- **Standalone snapshot caching**: The standalone `snapshot` command writes its tree to a cache file and returns `snapshot: { file }`, matching navigation results (no more double-escaped inline text).
+- **Clean error messages**: Upstream error messages are stripped of ANSI colour/dim escapes, so TOON `message` fields stay clean plain text.
 
 ## Common commands
 
@@ -178,6 +183,18 @@ tests until they are assigned to a wrapper command family.
 Navigation commands also accept a `--wait <state>` flag (e.g. `click e5 --wait networkidle`) that runs a bounded wait after the action. If the wait fails after a successful navigation, the primary result is returned with a `wait_warning` field instead of masking the success. For SPA navigations where `--wait networkidle` does not settle the client-side route, use `--settle` (e.g. `click e5 --settle`), which waits for the load state **and** polls `page.url()` until it stops changing, so the next read sees settled state.
 
 After a submit-triggering `click`/`dblclick`, the wrapper probes HTML5 constraint validation and surfaces `validation: { ok: false, invalid_fields: [...] }` when the browser appears to have blocked the submit (focused an invalid field). HTML5 validation bubbles are not in the accessibility tree, so without this a submit blocked by an invalid field looks identical to a successful submit. The primary click result and exit code are preserved either way.
+
+### Native dialog handling (alert/confirm/prompt)
+
+A click that opens a JS dialog leaves the modal pending in upstream, which wedges every later command with an opaque `does not handle the modal state` error. The wrapper handles this in two ways:
+
+- `click`/`dblclick --dialog accept:<text>|accept|dismiss` — handle the dialog atomically in the same call. Use `accept:<text>` for a `window.prompt` that must submit text. The result surfaces `dialog: { handled: true, action, text }` and the page stays usable (no `close`+`open` recovery needed).
+- A plain click that leaves a dialog pending surfaces `dialog: { pending: true }`, and any command that hits the wedged state returns a `modal_pending` error pointing at `dialog-accept`/`dialog-dismiss` instead of a dead-end.
+
+### Interaction post-state and spawned tabs
+
+- `check`/`uncheck` report the target ref's `checked` boolean and attach a post-action snapshot; `press`/`hover` attach a snapshot too, so the effect is visible without a separate read.
+- When a `click`/`dblclick` spawns a new tab or window, the result surfaces `new_tabs[]` (piggy-backed on the validation probe, so it adds no extra round-trip).
 
 `eval` and `run-code` flatten their single return value to a top-level `result` and undo upstream's JSON encoding, so `eval "location.href"` returns the URL directly (not `result: result: "\"…\""`). Note `eval` runs in the **browser DOM context** (no `page`); `run-code` runs in the **node context** and receives `page` (use an `async (page) => { ... }` arrow expression).
 
