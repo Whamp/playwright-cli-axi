@@ -1,6 +1,12 @@
-import { toToon } from './toon.js';
+import { toToon } from "./toon.js";
 
-export type ErrorKind = 'usage' | 'browser_not_open' | 'missing_browser' | 'upstream_error' | 'already_recording' | 'modal_pending';
+export type ErrorKind =
+  | "usage"
+  | "browser_not_open"
+  | "missing_browser"
+  | "upstream_error"
+  | "already_recording"
+  | "modal_pending";
 
 export interface StructuredErrorInput {
   kind: ErrorKind;
@@ -16,8 +22,8 @@ export function errorToStdout(input: StructuredErrorInput): string {
       kind: input.kind,
       message: input.message,
       ...(input.command ? { command: input.command } : {}),
-      ...(input.details ? { details: input.details } : {})
+      ...(input.details ? { details: input.details } : {}),
     },
-    ...(input.help && input.help.length > 0 ? { help: input.help } : {})
+    ...(input.help && input.help.length > 0 ? { help: input.help } : {}),
   });
 }

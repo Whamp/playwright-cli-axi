@@ -307,17 +307,27 @@ async function runGenericCommand(
   // "You entered: TAB" text, revealed caption) without a second call.
   const injectSnapshot = POST_SNAPSHOT_COMMANDS.has(command);
   const snapshotText = injectSnapshot ? await runSnapshotText(deps) : undefined;
-  const snapshotName = deps.now().toISOString().replace(/[^0-9a-z]/gi, "-");
+  const snapshotName = deps
+    .now()
+    .toISOString()
+    .replace(/[^0-9a-z]/gi, "-");
   const snapshotDir = run.artifactBase ?? resolveArtifactDir(deps.env);
   const model = commandSuccessModel(command, parsed, {
     full,
     fields,
     artifactBase: run.artifactBase,
-    writeFile: injectSnapshot || command === "snapshot" ? writeSnapshot : undefined,
+    writeFile:
+      injectSnapshot || command === "snapshot" ? writeSnapshot : undefined,
     snapshotDir,
     snapshotName,
     ...(snapshotText
-      ? { postSnapshot: { text: snapshotText, dir: snapshotDir, name: snapshotName } }
+      ? {
+          postSnapshot: {
+            text: snapshotText,
+            dir: snapshotDir,
+            name: snapshotName,
+          },
+        }
       : {}),
     targetRef: argsAfterCommandRef(argv),
   });
@@ -332,8 +342,7 @@ async function runGenericCommand(
   if (VALIDATION_PROBE_COMMANDS.has(command)) {
     const probe = await runValidationProbe(deps);
     if (probe?.validation) model.validation = probe.validation;
-    if (probe?.modalPending && !dialogHandled)
-      model.dialog = { pending: true };
+    if (probe?.modalPending && !dialogHandled) model.dialog = { pending: true };
     if (probe?.tabs) model.new_tabs = probe.tabs;
   }
   return { exitCode: 0, stdout: toToon(model) };
@@ -565,13 +574,14 @@ async function runSettle(
  * tool). That failure is reported as `modalPending` so the wrapper can surface
  * `dialog: { pending: true }` and tell the agent to handle the dialog.
  */
-async function runValidationProbe(
-  deps: Required<CliDependencies>,
-): Promise<{
-  validation?: { ok: false; invalid_fields: ToonValue[] };
-  modalPending?: boolean;
-  tabs?: ToonValue[];
-} | undefined> {
+async function runValidationProbe(deps: Required<CliDependencies>): Promise<
+  | {
+      validation?: { ok: false; invalid_fields: ToonValue[] };
+      modalPending?: boolean;
+      tabs?: ToonValue[];
+    }
+  | undefined
+> {
   try {
     const run = await deps.upstream(["run-code", validationProbeCode()]);
     const parsed = parseUpstreamOutput(run.stdout, run.stderr, run.exitCode);

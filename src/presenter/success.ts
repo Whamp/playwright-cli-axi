@@ -66,8 +66,7 @@ export function commandSuccessModel(
       return tabModel(command, parsed.value, options);
     if (command === "console")
       return consoleModel(command, parsed.value, options);
-    if (DIALOG_COMMANDS.has(command))
-      return dialogModel(command, parsed.value);
+    if (DIALOG_COMMANDS.has(command)) return dialogModel(command, parsed.value);
     if (NAVIGATION_COMMANDS.has(command))
       return navigationModel(command, parsed.value, options);
     if (FLAT_RESULT_COMMANDS.has(command))
@@ -108,7 +107,12 @@ const NAVIGATION_COMMANDS = new Set([
 
 /** D-3: tab commands return upstream markdown that is re-shaped into a single
  * structured `tabs[]` shape (ordinal index + current flag + title + real URL). */
-const TAB_COMMANDS = new Set(["tab-list", "tab-new", "tab-close", "tab-select"]);
+const TAB_COMMANDS = new Set([
+  "tab-list",
+  "tab-new",
+  "tab-close",
+  "tab-select",
+]);
 
 /** D-1: dialog commands. Upstream returns an empty `{}` on success; the wrapper
  * surfaces `handled: true` (+ action/text) so the agent knows the dialog was
@@ -424,7 +428,10 @@ function navigationModel(
     const file = writePostSnapshot(options);
     if (file) lifted.snapshot = resolveSnapshot({ file }, options.artifactBase);
     if ((command === "check" || command === "uncheck") && options.targetRef) {
-      const checked = refIsChecked(options.postSnapshot.text, options.targetRef);
+      const checked = refIsChecked(
+        options.postSnapshot.text,
+        options.targetRef,
+      );
       if (checked !== undefined) lifted.checked = checked;
     }
   }
@@ -452,9 +459,7 @@ function writePostSnapshot(options: SuccessOptions): string | undefined {
  * so the presence of `[checked]` on the ref's line is the signal. */
 function refIsChecked(snapshotText: string, ref: string): boolean | undefined {
   const refTag = `[ref=${ref}]`;
-  const line = snapshotText
-    .split("\n")
-    .find((l) => l.includes(refTag));
+  const line = snapshotText.split("\n").find((l) => l.includes(refTag));
   if (!line) return undefined;
   return /\[checked\]/.test(line);
 }
@@ -498,11 +503,7 @@ const STORAGE_READ_COMMANDS = new Set([
 
 /** D-7: artifact commands whose upstream result is a single markdown file link
  * (`- [Label](path)`); the link target is lifted into a structured `file` field. */
-const ARTIFACT_FILE_COMMANDS = new Set([
-  "screenshot",
-  "pdf",
-  "state-save",
-]);
+const ARTIFACT_FILE_COMMANDS = new Set(["screenshot", "pdf", "state-save"]);
 
 /** D-7: extract the absolute file path from a single-link artifact result
  * (`- [Label](path)`). Returns undefined when the result is not a link, so
@@ -593,7 +594,10 @@ function snapshotModel(
     );
     try {
       options.writeFile(file, text);
-      return { ...base, snapshot: resolveSnapshot({ file }, options.artifactBase) };
+      return {
+        ...base,
+        snapshot: resolveSnapshot({ file }, options.artifactBase),
+      };
     } catch {
       // Fall through to bounded inline text if the cache dir is unwritable.
     }
@@ -623,8 +627,7 @@ function tabModel(
   const base = baseModel(command);
   const raw = liftSingleResultValue(value);
   const tabs = parseTabList(typeof raw === "string" ? raw : "");
-  if (tabs.length === 0)
-    return { ...base, result: toResultValue(raw) };
+  if (tabs.length === 0) return { ...base, result: toResultValue(raw) };
   return {
     ...base,
     tabs: {

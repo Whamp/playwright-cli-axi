@@ -205,7 +205,11 @@ export function stripWrapperFlags(argv: string[]): string[] {
       if (next !== undefined && isValidWaitState(next)) index += 1;
       continue;
     }
-    if (arg.startsWith("--fields=") || arg.startsWith("--wait=") || arg.startsWith("--dialog="))
+    if (
+      arg.startsWith("--fields=") ||
+      arg.startsWith("--wait=") ||
+      arg.startsWith("--dialog=")
+    )
       continue;
     if (arg.startsWith("--settle=")) continue;
     result.push(arg);

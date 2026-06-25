@@ -1249,7 +1249,8 @@ describe("runCli D-1: native dialogs", () => {
   it("a modal-state error from any command is actionable (modal_pending)", async () => {
     const harness = await createHarness([
       {
-        stdout: '{"isError":true,"error":"Error: Tool browser_evaluate does not handle the modal state."}',
+        stdout:
+          '{"isError":true,"error":"Error: Tool browser_evaluate does not handle the modal state."}',
         exitCode: 1,
       },
     ]);
@@ -1263,17 +1264,20 @@ describe("runCli D-1: native dialogs", () => {
 
 describe("runCli D-8: spawned tabs", () => {
   it("surfaces new_tabs when a click spawns a popup", async () => {
-    const harness = await createHarness([{ stdout: '{"snapshot":{"file":"p.yml"}}' }], {
-      pages: [
-        { index: 0, current: true, url: "https://app/windows", title: "App" },
-        {
-          index: 1,
-          current: false,
-          url: "https://app/windows/new",
-          title: "New Window",
-        },
-      ],
-    });
+    const harness = await createHarness(
+      [{ stdout: '{"snapshot":{"file":"p.yml"}}' }],
+      {
+        pages: [
+          { index: 0, current: true, url: "https://app/windows", title: "App" },
+          {
+            index: 1,
+            current: false,
+            url: "https://app/windows/new",
+            title: "New Window",
+          },
+        ],
+      },
+    );
     const result = await harness.run(["click", "e9"]);
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("new_tabs[");
@@ -1281,9 +1285,12 @@ describe("runCli D-8: spawned tabs", () => {
   });
 
   it("does not report new_tabs for a normal single-tab click", async () => {
-    const harness = await createHarness([{ stdout: '{"snapshot":{"file":"p.yml"}}' }], {
-      pages: [{ index: 0, current: true, url: "https://app/", title: "App" }],
-    });
+    const harness = await createHarness(
+      [{ stdout: '{"snapshot":{"file":"p.yml"}}' }],
+      {
+        pages: [{ index: 0, current: true, url: "https://app/", title: "App" }],
+      },
+    );
     const result = await harness.run(["click", "e5"]);
     expect(result.exitCode).toBe(0);
     // TOON renders arrays as `new_tabs[N]:`, so match the bare key to actually
@@ -1307,10 +1314,7 @@ describe("runCli D-5: post-action snapshot for empty-result commands", () => {
     const result = await harness.run(["check", "e10"]);
     expect(result.exitCode).toBe(0);
     // proves runSnapshotText fired the snapshot call (the wiring is live)
-    expect(harness.upstreamRuns).toEqual([
-      ["check", "e10"],
-      ["snapshot"],
-    ]);
+    expect(harness.upstreamRuns).toEqual([["check", "e10"], ["snapshot"]]);
     expect(result.stdout).toContain("checked: true");
   });
 
@@ -1322,10 +1326,7 @@ describe("runCli D-5: post-action snapshot for empty-result commands", () => {
     ]);
     const result = await harness.run(["uncheck", "e11"]);
     expect(result.exitCode).toBe(0);
-    expect(harness.upstreamRuns).toEqual([
-      ["uncheck", "e11"],
-      ["snapshot"],
-    ]);
+    expect(harness.upstreamRuns).toEqual([["uncheck", "e11"], ["snapshot"]]);
     expect(result.stdout).toContain("checked: false");
   });
 
@@ -1337,9 +1338,6 @@ describe("runCli D-5: post-action snapshot for empty-result commands", () => {
     ]);
     const result = await harness.run(["press", "Enter"]);
     expect(result.exitCode).toBe(0);
-    expect(harness.upstreamRuns).toEqual([
-      ["press", "Enter"],
-      ["snapshot"],
-    ]);
+    expect(harness.upstreamRuns).toEqual([["press", "Enter"], ["snapshot"]]);
   });
 });

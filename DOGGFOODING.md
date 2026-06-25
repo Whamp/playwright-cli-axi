@@ -892,7 +892,7 @@ message: "Error: Error: Not a checkbox or radio button Call log: \u001b[2m - wai
 ```
 
 Raw `\u001b[2m` / `\u001b[22m` terminal escapes pollute the TOON `message`
-field. The error *content* is good (it named the resolved element), but the
+field. The error _content_ is good (it named the resolved element), but the
 escapes should be stripped before the wrapper emits the error.
 
 #### 🟡 D-7 — `console` and `pdf` results are display strings, not structured fields
@@ -929,7 +929,7 @@ hint on `click` would close the gap.
   link via the following snapshot.
 - **`tab-select 1`:** actually switched the visible page — verified with
   `eval "document.title + ' | ' + location.pathname"` →
-  `result: New Window | /windows/new`. (Tab *output shape* is the problem, not
+  `result: New Window | /windows/new`. (Tab _output shape_ is the problem, not
   the behavior.)
 - **`pdf`:** produced a real 25 KB file at the requested absolute path.
 - **`console`:** captured a real `TypeError` with full stack trace from
@@ -1001,8 +1001,9 @@ JS modal **pending**, wedging every later command. Two complementary fixes:
   opaque dead-end.
 
 Live evidence (no `close`+`open` recovery anywhere):
+
 - `click e16 --dialog accept:Alice` → `dialog: { handled: true, action: accept,
-  text: Alice }`; `eval #result` → `You entered: Alice`; `eval 1+1` → `2`
+text: Alice }`; `eval #result` → `You entered: Alice`; `eval 1+1` → `2`
   (session usable).
 - `click e14 --dialog dismiss` → `handled: true, action: dismiss`; result
   `You clicked: Cancel`.

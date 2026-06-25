@@ -362,9 +362,9 @@ describe("validationProbeCode (C-1)", () => {
 
 describe("parseDialogFlag (D-1)", () => {
   it("parses accept:<text> for a prompt", () => {
-    expect(parseDialogFlag(["click", "e16", "--dialog", "accept:Alice"])).toEqual(
-      { action: "accept", text: "Alice" },
-    );
+    expect(
+      parseDialogFlag(["click", "e16", "--dialog", "accept:Alice"]),
+    ).toEqual({ action: "accept", text: "Alice" });
     expect(parseDialogFlag(["click", "e16", "--dialog=accept:Alice"])).toEqual({
       action: "accept",
       text: "Alice",
@@ -395,9 +395,9 @@ describe("parseDialogFlag (D-1)", () => {
   });
 
   it("stripWrapperFlags drops --dialog and its value", () => {
-    expect(stripWrapperFlags(["click", "e16", "--dialog", "accept:Alice"])).toEqual(
-      ["click", "e16"],
-    );
+    expect(
+      stripWrapperFlags(["click", "e16", "--dialog", "accept:Alice"]),
+    ).toEqual(["click", "e16"]);
     expect(stripWrapperFlags(["click", "e16", "--dialog=dismiss"])).toEqual([
       "click",
       "e16",

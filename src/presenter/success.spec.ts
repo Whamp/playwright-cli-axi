@@ -679,7 +679,9 @@ describe("commandSuccessModel storage empty states (H3-4)", () => {
     );
     expect(written?.contents).toBe("- generic [ref=e1]: hi");
     expect(written?.path).toBe("/cache/.playwright-cli/page-x.yml");
-    expect(model.snapshot).toEqual({ file: "/cache/.playwright-cli/page-x.yml" });
+    expect(model.snapshot).toEqual({
+      file: "/cache/.playwright-cli/page-x.yml",
+    });
   });
 
   it("D-2: snapshot falls back to inline text when no writer is injected", () => {
@@ -753,7 +755,7 @@ describe("commandSuccessModel storage empty states (H3-4)", () => {
         written = contents;
       },
       postSnapshot: {
-        text: '- checkbox [checked] [ref=e10]\n- checkbox [ref=e11]',
+        text: "- checkbox [checked] [ref=e10]\n- checkbox [ref=e11]",
         dir: "/cache",
         name: "after",
       },
@@ -761,13 +763,15 @@ describe("commandSuccessModel storage empty states (H3-4)", () => {
     });
     expect(written).toContain("[checked]");
     expect(model.checked).toBe(true);
-    expect(model.snapshot).toEqual({ file: "/cache/.playwright-cli/after.yml" });
+    expect(model.snapshot).toEqual({
+      file: "/cache/.playwright-cli/after.yml",
+    });
   });
 
   it("D-5: uncheck reports checked:false when the ref is unchecked", () => {
     const model = commandSuccessModel("uncheck", json({}), {
       postSnapshot: {
-        text: '- checkbox [ref=e10]\n- checkbox [checked] [ref=e11]',
+        text: "- checkbox [ref=e10]\n- checkbox [checked] [ref=e11]",
         dir: "/cache",
         name: "after",
       },
