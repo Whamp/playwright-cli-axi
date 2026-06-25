@@ -193,7 +193,7 @@ A click that opens a JS dialog leaves the modal pending in upstream, which wedge
 
 ### Interaction post-state and spawned tabs
 
-- `check`/`uncheck` report the target ref's `checked` boolean and attach a post-action snapshot; `press`/`hover` attach a snapshot too, so the effect is visible without a separate read.
+- `check`/`uncheck` report the target ref's `checked` boolean and attach a post-action snapshot; `fill`/`press`/`hover` attach a snapshot too, so the effect is visible without a separate read.
 - When a `click`/`dblclick` spawns a new tab or window, the result surfaces `new_tabs[]` (piggy-backed on the validation probe, so it adds no extra round-trip).
 
 `eval` and `run-code` flatten their single return value to a top-level `result` and undo upstream's JSON encoding, so `eval "location.href"` returns the URL directly (not `result: result: "\"…\""`). Note `eval` runs in the **browser DOM context** (no `page`); `run-code` runs in the **node context** and receives `page` (use an `async (page) => { ... }` arrow expression).

@@ -427,6 +427,8 @@ function navigationModel(
   if (options.postSnapshot && lifted.snapshot === undefined) {
     const file = writePostSnapshot(options);
     if (file) lifted.snapshot = resolveSnapshot({ file }, options.artifactBase);
+    if (isObject(lifted.result) && Object.keys(lifted.result).length === 0)
+      delete lifted.result;
     if ((command === "check" || command === "uncheck") && options.targetRef) {
       const checked = refIsChecked(
         options.postSnapshot.text,
@@ -628,11 +630,12 @@ function tabModel(
   const raw = liftSingleResultValue(value);
   const tabs = parseTabList(typeof raw === "string" ? raw : "");
   if (tabs.length === 0) return { ...base, result: toResultValue(raw) };
+  const current = tabs.find((t) => t.current)?.index ?? -1;
   return {
     ...base,
     tabs: {
       count: tabs.length,
-      current: tabs.filter((t) => t.current).length,
+      current,
     },
     tab_rows: table(
       ["index", "current", "title", "url"],

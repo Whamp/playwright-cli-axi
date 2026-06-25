@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -447,6 +447,8 @@ describe("runCli", () => {
       { stdout: "Video recording started." },
       { stdout: "- [Video](./out.webm)\n- [Trace](./trace.zip)" },
     ]);
+    await writeFile(join(harness.cwd, "out.webm"), "video");
+    await writeFile(join(harness.cwd, "trace.zip"), "trace");
     await harness.run(["video-start", "./out.webm"]);
 
     // Act
@@ -468,12 +470,35 @@ describe("runCli", () => {
     expect(state.lastFiles).toEqual(["./out.webm", "./trace.zip"]);
   });
 
+  it("DF5-3: video-stop filters missing artifacts instead of reporting phantom files", async () => {
+    const harness = await createHarness([
+      { stdout: "Video recording started." },
+      { stdout: "- [Video](./real.webm)\n- [Video](./phantom.webm)" },
+    ]);
+    await writeFile(join(harness.cwd, "real.webm"), "video");
+    await harness.run(["video-start", "./real.webm"]);
+
+    const stop = await harness.run(["video-stop"]);
+    const status = await harness.run(["video-status"]);
+
+    expect(stop.exitCode).toBe(0);
+    expect(stop.stdout).toContain("files:\n  count: 1");
+    expect(stop.stdout).toContain("video_files[1]:\n  - ./real.webm");
+    expect(stop.stdout).not.toContain("phantom.webm");
+    expect(status.stdout).toContain("files:\n  count: 1");
+    expect(status.stdout).not.toContain("phantom.webm");
+    const state = await harness.readState();
+    expect(state.lastFiles).toEqual(["./real.webm"]);
+  });
+
   it("should preserve labeled video artifact classification after video-stop", async () => {
     // Arrange
     const harness = await createHarness([
       { stdout: "Video recording started." },
       { stdout: "- [Video](./archive.zip)\n- [Trace](./movie.webm)" },
     ]);
+    await writeFile(join(harness.cwd, "archive.zip"), "archive");
+    await writeFile(join(harness.cwd, "movie.webm"), "video");
     await harness.run(["video-start", "./movie.webm"]);
 
     // Act
@@ -1097,6 +1122,7 @@ async function createHarness(
 ) {
   const stateRoot = await mkdtemp(join(tmpdir(), "playwright-cli-axi-test-"));
   const cwd = join(stateRoot, "workspace");
+  await mkdir(cwd, { recursive: true });
   const upstreamRuns: string[][] = [];
   const pageOpen = options.pageOpen ?? "open";
   const validation = options.validation;
@@ -1339,5 +1365,21 @@ describe("runCli D-5: post-action snapshot for empty-result commands", () => {
     const result = await harness.run(["press", "Enter"]);
     expect(result.exitCode).toBe(0);
     expect(harness.upstreamRuns).toEqual([["press", "Enter"], ["snapshot"]]);
+  });
+
+  it("DF5-1: fill issues the post-snapshot probe so state is visible", async () => {
+    const snapshotBody = '- textbox "First Name" [ref=e197]: Dog';
+    const harness = await createHarness([
+      { stdout: "{}" },
+      { stdout: JSON.stringify({ snapshot: snapshotBody }) },
+    ]);
+    const result = await harness.run(["fill", "e197", "Dog"]);
+    expect(result.exitCode).toBe(0);
+    expect(harness.upstreamRuns).toEqual([
+      ["fill", "e197", "Dog"],
+      ["snapshot"],
+    ]);
+    expect(result.stdout).toContain("snapshot:");
+    expect(result.stdout).not.toContain("result: {}");
   });
 });
