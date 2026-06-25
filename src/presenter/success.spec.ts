@@ -775,7 +775,6 @@ describe("commandSuccessModel storage empty states (H3-4)", () => {
     });
     expect(model.checked).toBe(false);
   });
-});
 
   it("D-1: standalone dialog-accept surfaces handled:true (not a silent {})", () => {
     const model = commandSuccessModel("dialog-accept", json({}));
@@ -788,3 +787,4 @@ describe("commandSuccessModel storage empty states (H3-4)", () => {
     expect(model.handled).toBe(true);
     expect(model.action).toBe("dismiss");
   });
+});
