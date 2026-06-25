@@ -661,4 +661,130 @@ describe("commandSuccessModel storage empty states (H3-4)", () => {
     );
     expect(model.found).toBeUndefined();
   });
+
+  // ---- D-2..D-8: dogfooding fixes ----
+
+  it("D-2: snapshot writes inline text to a file and returns { file }", () => {
+    let written: { path: string; contents: string } | undefined;
+    const model = commandSuccessModel(
+      "snapshot",
+      json({ snapshot: "- generic [ref=e1]: hi" }),
+      {
+        writeFile: (path, contents) => {
+          written = { path, contents };
+        },
+        snapshotDir: "/cache",
+        snapshotName: "page-x",
+      },
+    );
+    expect(written?.contents).toBe("- generic [ref=e1]: hi");
+    expect(written?.path).toBe("/cache/.playwright-cli/page-x.yml");
+    expect(model.snapshot).toEqual({ file: "/cache/.playwright-cli/page-x.yml" });
+  });
+
+  it("D-2: snapshot falls back to inline text when no writer is injected", () => {
+    const model = commandSuccessModel(
+      "snapshot",
+      json({ snapshot: "- generic [ref=e1]: hi" }),
+    );
+    expect(model.snapshot).toBe("- generic [ref=e1]: hi");
+  });
+
+  it("D-3: tab-list returns one structured tab_rows table (no markdown)", () => {
+    const model = commandSuccessModel(
+      "tab-list",
+      json({
+        result:
+          "- 0: (current) [The Internet](https://the-internet.herokuapp.com/windows)\n" +
+          "- 1: [New Window](https://the-internet.herokuapp.com/windows/new)",
+      }),
+    );
+    expect(toToon(model)).not.toContain("result: result:");
+    expect(toToon(model)).toContain("tabs:");
+    expect(toToon(model)).toContain("tab_rows[2]");
+    // D-4: the real URL survives, unmangled.
+    expect(toToon(model)).toContain(
+      "https://the-internet.herokuapp.com/windows/new",
+    );
+    expect(toToon(model)).not.toContain("https:/the-internet");
+  });
+
+  it("D-3: tab-select is not double-nested (no result.result)", () => {
+    const model = commandSuccessModel(
+      "tab-select",
+      json({
+        result: "- 0: [A](https://a/)\n- 1: (current) [B](https://b/)",
+      }),
+    );
+    expect(toToon(model)).toContain("tab_rows[2]");
+    expect(toToon(model)).not.toContain("result: result:");
+  });
+
+  it("D-7: console returns structured totals + messages table, not a display string", () => {
+    const model = commandSuccessModel(
+      "console",
+      json({
+        result:
+          "Total messages: 2 (Errors: 1, Warnings: 1)\n\n" +
+          "[ERROR] boom @ :0\n[WARNING] careful @ :0",
+      }),
+    );
+    const out = toToon(model);
+    expect(out).toContain("totals:");
+    expect(out).toContain("errors: 1");
+    expect(out).toContain("messages[2]");
+    expect(out).toContain("boom");
+    expect(out).not.toContain("Total messages:");
+  });
+
+  it("D-7: pdf lifts the file link into a structured `file` field", () => {
+    const model = commandSuccessModel(
+      "pdf",
+      json({ result: "- [Page as pdf](./out/page.pdf)" }),
+      { artifactBase: "/cwd" },
+    );
+    expect(model.file).toBe("/cwd/out/page.pdf");
+  });
+
+  it("D-5: check reports the target ref's checked state + a snapshot file", () => {
+    let written: string | undefined;
+    const model = commandSuccessModel("check", json({}), {
+      writeFile: (_path, contents) => {
+        written = contents;
+      },
+      postSnapshot: {
+        text: '- checkbox [checked] [ref=e10]\n- checkbox [ref=e11]',
+        dir: "/cache",
+        name: "after",
+      },
+      targetRef: "e10",
+    });
+    expect(written).toContain("[checked]");
+    expect(model.checked).toBe(true);
+    expect(model.snapshot).toEqual({ file: "/cache/.playwright-cli/after.yml" });
+  });
+
+  it("D-5: uncheck reports checked:false when the ref is unchecked", () => {
+    const model = commandSuccessModel("uncheck", json({}), {
+      postSnapshot: {
+        text: '- checkbox [ref=e10]\n- checkbox [checked] [ref=e11]',
+        dir: "/cache",
+        name: "after",
+      },
+      targetRef: "e10",
+    });
+    expect(model.checked).toBe(false);
+  });
 });
+
+  it("D-1: standalone dialog-accept surfaces handled:true (not a silent {})", () => {
+    const model = commandSuccessModel("dialog-accept", json({}));
+    expect(model.handled).toBe(true);
+    expect(model.action).toBe("accept");
+  });
+
+  it("D-1: standalone dialog-dismiss surfaces handled:true", () => {
+    const model = commandSuccessModel("dialog-dismiss", json({}));
+    expect(model.handled).toBe(true);
+    expect(model.action).toBe("dismiss");
+  });

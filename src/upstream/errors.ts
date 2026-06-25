@@ -4,6 +4,7 @@ import {
   OVERRIDE_ENV_VAR,
 } from "../domain/browserDiscovery.js";
 import { commandName } from "../domain/commandSurface.js";
+import { stripAnsi } from "../domain/resultShapes.js";
 import { errorToStdout } from "../presenter/errors.js";
 import type { ParsedUpstream } from "./parse.js";
 import { sanitizeDependencyText } from "./parse.js";
@@ -67,6 +68,25 @@ export function normalizeUpstreamError(
       }),
     };
   }
+  // D-1: a pending JS dialog (alert/confirm/prompt) wedges every modal-aware
+  // command until it is handled. Surface an actionable recovery path instead of
+  // the opaque "does not handle the modal state" upstream text.
+  if (/does not handle the modal state/i.test(diagnostic)) {
+    return {
+      exitCode: 1,
+      stdout: errorToStdout({
+        kind: "modal_pending",
+        message:
+          "a browser dialog (alert/confirm/prompt) is open and is blocking all commands",
+        command,
+        help: [
+          "playwright-cli-axi dialog-accept [text]   # accept the dialog (optional prompt text)",
+          "playwright-cli-axi dialog-dismiss          # dismiss the dialog",
+          "re-run the click with --dialog accept:<text>|dismiss to handle it atomically",
+        ],
+      }),
+    };
+  }
   if (
     /unknown option|invalid option|missing required|usage:/i.test(diagnostic)
   ) {
@@ -92,7 +112,9 @@ export function normalizeUpstreamError(
 }
 
 function sanitizeMessage(raw: string): string {
-  return sanitizeDependencyText(raw)
+  // D-6: strip ANSI colour/dim escapes Playwright embeds in call-log lines so
+  // the TOON `message` field is clean plain text.
+  return stripAnsi(sanitizeDependencyText(raw))
     .replace(
       /playwright-cli install-browser/g,
       "playwright-cli-axi install-browser",

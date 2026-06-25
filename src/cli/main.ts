@@ -1,6 +1,8 @@
 import { cwd as processCwd } from "node:process";
+import { writeFileSync } from "node:fs";
 
 import {
+  commandIndex,
   commandName,
   hasFullFlag,
   hasVersionFlag,
@@ -8,6 +10,7 @@ import {
   isValidWaitState,
   isVideoCommand,
   isWrapperCommand,
+  parseDialogFlag,
   parseFieldsFlag,
   parseSettleFlag,
   parseWaitFlag,
@@ -54,6 +57,7 @@ import { normalizeUpstreamError } from "../upstream/errors.js";
 import { isObject, parseUpstreamOutput } from "../upstream/parse.js";
 import {
   createUpstreamRunner,
+  resolveArtifactDir,
   resolveUpstreamVersion,
   resolveWrapperVersion,
   type UpstreamRunner,
@@ -270,11 +274,12 @@ async function runGenericCommand(
   const fields = parseFieldsFlag(argv);
   const wait = parseWaitFlag(argv);
   const settle = parseSettleFlag(argv);
+  const dialog = parseDialogFlag(argv);
+  const command = commandName(argv) ?? argv[0] ?? "command";
   const run = await deps.upstream(stripWrapperFlags(argv));
   const parsed = parseUpstreamOutput(run.stdout, run.stderr, run.exitCode);
   if (parsed.isError || run.exitCode !== 0)
     return normalizeUpstreamError(argv, run, parsed);
-  const command = commandName(argv) ?? argv[0] ?? "command";
   // P-5: optionally wait for the page to settle after a navigation-producing
   // command, so the post-action state is trustworthy without manual sleep.
   // N-2: a wait failure must NOT mask the primary command's success — surface
@@ -289,19 +294,47 @@ async function runGenericCommand(
     const waitResult = await runPageWait(wait, deps);
     if (waitResult.kind === "error") waitWarning = waitResult.warning;
   }
+  // D-1: handle a dialog opened by the click atomically. Run after the primary
+  // click so the modal is pending; dialog-accept/dismiss clear it and the page
+  // stays usable. A click that opened no dialog makes dialog-accept fail with
+  // "no modal state", which we suppress as a harmless no-op.
+  let dialogHandled: ToonValue | undefined;
+  if (dialog && DIALOG_PROBE_COMMANDS.has(command)) {
+    dialogHandled = await runDialogHandle(dialog, deps);
+  }
+  // D-5: check/uncheck/press return an empty `{}` from upstream; capture the
+  // post-action snapshot so the agent sees the resulting state (checked flag,
+  // "You entered: TAB" text, revealed caption) without a second call.
+  const injectSnapshot = POST_SNAPSHOT_COMMANDS.has(command);
+  const snapshotText = injectSnapshot ? await runSnapshotText(deps) : undefined;
+  const snapshotName = deps.now().toISOString().replace(/[^0-9a-z]/gi, "-");
+  const snapshotDir = run.artifactBase ?? resolveArtifactDir(deps.env);
   const model = commandSuccessModel(command, parsed, {
     full,
     fields,
     artifactBase: run.artifactBase,
+    writeFile: injectSnapshot || command === "snapshot" ? writeSnapshot : undefined,
+    snapshotDir,
+    snapshotName,
+    ...(snapshotText
+      ? { postSnapshot: { text: snapshotText, dir: snapshotDir, name: snapshotName } }
+      : {}),
+    targetRef: argsAfterCommandRef(argv),
   });
   if (waitWarning) model.wait_warning = waitWarning;
+  if (dialogHandled) model.dialog = dialogHandled;
   // C-1: after a submit-triggering click, probe HTML5 constraint validation
   // so a submit blocked by an invalid field is not silently reported as ok
-  // (the validation bubble is not in the accessibility tree). Never masks the
-  // primary result and never fails the command.
+  // (the validation bubble is not in the accessibility tree). The same probe
+  // doubles as D-1's modal detector (run-code fails with "does not handle the
+  // modal state" when a dialog is pending) and D-8's tab detector (it reports
+  // the open pages, surfacing popups spawned by the click).
   if (VALIDATION_PROBE_COMMANDS.has(command)) {
-    const validation = await runValidationProbe(deps);
-    if (validation) model.validation = validation;
+    const probe = await runValidationProbe(deps);
+    if (probe?.validation) model.validation = probe.validation;
+    if (probe?.modalPending && !dialogHandled)
+      model.dialog = { pending: true };
+    if (probe?.tabs) model.new_tabs = probe.tabs;
   }
   return { exitCode: 0, stdout: toToon(model) };
 }
@@ -462,6 +495,19 @@ async function runWaitCommand(
   };
 }
 
+function successTextOf(parsed: ReturnType<typeof parseUpstreamOutput>): string {
+  if (parsed.kind === "text") return parsed.text;
+  if (
+    parsed.value &&
+    typeof parsed.value === "object" &&
+    "result" in parsed.value
+  ) {
+    const v = (parsed.value as { result?: unknown }).result;
+    return typeof v === "string" ? v : "";
+  }
+  return "";
+}
+
 /** Issue a bounded page wait after a navigation command (P-5). N-2: a wait
  * failure here is reported as a warning, never a hard error, so it cannot mask
  * the primary command's success. */
@@ -513,14 +559,30 @@ async function runSettle(
  * browser focused an invalid field), so a blocked submit is surfaced instead
  * of silently reported as ok. Returns undefined (adds nothing) otherwise, so
  * navigating/non-submit clicks are unaffected.
+ *
+ * D-1: the probe's run-code fails with "does not handle the modal state" when
+ * a JS dialog is pending after the click (the modal wedges every modal-aware
+ * tool). That failure is reported as `modalPending` so the wrapper can surface
+ * `dialog: { pending: true }` and tell the agent to handle the dialog.
  */
 async function runValidationProbe(
   deps: Required<CliDependencies>,
-): Promise<{ ok: false; invalid_fields: ToonValue[] } | undefined> {
+): Promise<{
+  validation?: { ok: false; invalid_fields: ToonValue[] };
+  modalPending?: boolean;
+  tabs?: ToonValue[];
+} | undefined> {
   try {
     const run = await deps.upstream(["run-code", validationProbeCode()]);
     const parsed = parseUpstreamOutput(run.stdout, run.stderr, run.exitCode);
-    if (parsed.isError || run.exitCode !== 0) return undefined;
+    if (parsed.isError || run.exitCode !== 0) {
+      const diag = [parsed.error ?? "", run.stderr, run.stdout]
+        .filter(Boolean)
+        .join("\n");
+      if (/does not handle the modal state/i.test(diag))
+        return { modalPending: true };
+      return undefined;
+    }
     const raw = parsed.kind === "json" ? parsed.value : undefined;
     if (!isObject(raw)) return undefined;
     // run-code wraps its return value in { result: "<json>" }; unwrap and parse.
@@ -534,27 +596,104 @@ async function runValidationProbe(
         return undefined;
       }
     }
+    const result: {
+      validation?: { ok: false; invalid_fields: ToonValue[] };
+      tabs?: ToonValue[];
+    } = {};
     const active = Boolean(probe.activeIsInvalid);
     const fields = probe.fields;
-    if (!active || !Array.isArray(fields) || fields.length === 0)
-      return undefined;
-    return { ok: false, invalid_fields: fields as ToonValue[] };
+    if (active && Array.isArray(fields) && fields.length > 0)
+      result.validation = { ok: false, invalid_fields: fields as ToonValue[] };
+    // D-8: surface tabs spawned by the click. Without a before-count we treat
+    // any page that is not the current one as newly opened (the common
+    // single-tab-then-popup case); pre-existing multi-tab setups are rare and
+    // the agent sees the full list either way.
+    if (Array.isArray(probe.pages) && probe.pages.length > 1) {
+      const tabs = (probe.pages as unknown[])
+        .filter((p): p is Record<string, unknown> => isObject(p))
+        .filter((p) => p.current !== true)
+        .map((p) => ({
+          index: typeof p.index === "number" ? p.index : 0,
+          title: typeof p.title === "string" ? p.title : "",
+          url: typeof p.url === "string" ? p.url : "",
+        }));
+      if (tabs.length > 0) result.tabs = tabs;
+    }
+    return result;
   } catch {
     return undefined;
   }
 }
 
-function successTextOf(parsed: ReturnType<typeof parseUpstreamOutput>): string {
-  if (parsed.kind === "text") return parsed.text;
-  if (
-    parsed.value &&
-    typeof parsed.value === "object" &&
-    "result" in parsed.value
-  ) {
-    const v = (parsed.value as { result?: unknown }).result;
-    return typeof v === "string" ? v : "";
+/** Commands that accept `--dialog` to handle a JS dialog atomically (D-1). */
+const DIALOG_PROBE_COMMANDS = new Set(["click", "dblclick"]);
+/** D-5: commands that return an empty `{}` and so need a captured post-action
+ * snapshot to report their effect. */
+const POST_SNAPSHOT_COMMANDS = new Set(["check", "uncheck", "press"]);
+
+/** Write a snapshot text payload to the cache, mirroring navigation artifacts. */
+function writeSnapshot(path: string, contents: string): void {
+  try {
+    writeFileSync(path, contents, { flag: "wx" });
+  } catch {
+    // ponytail: collisions on the timestamped name are harmless; the caller
+    // falls back to bounded inline text. No retry needed.
   }
-  return "";
+}
+
+/** D-1: handle a pending dialog after a click via upstream dialog-accept/dismiss.
+ * Returns `{ handled, action, text }` on success; undefined (a click that opened
+ * no dialog) when upstream reports no modal state. */
+async function runDialogHandle(
+  dialog: { action: "accept" | "dismiss"; text?: string },
+  deps: Required<CliDependencies>,
+): Promise<ToonValue | undefined> {
+  const argv =
+    dialog.action === "dismiss"
+      ? ["dialog-dismiss"]
+      : ["dialog-accept", ...(dialog.text ? [dialog.text] : [])];
+  try {
+    const run = await deps.upstream(argv);
+    const parsed = parseUpstreamOutput(run.stdout, run.stderr, run.exitCode);
+    const diag = [parsed.error ?? "", run.stderr, run.stdout]
+      .filter(Boolean)
+      .join("\n");
+    // A click that opened no dialog leaves no modal to handle — suppress.
+    if (/can only be used when there is .*modal state|no .*modal/i.test(diag))
+      return undefined;
+    // Review (correctness): do not claim `handled: true` on a non-modal
+    // failure (daemon crash, bad arg, etc.) — only when upstream succeeded.
+    if (run.exitCode !== 0 || parsed.isError) return undefined;
+    return {
+      handled: true,
+      action: dialog.action,
+      ...(dialog.text ? { text: dialog.text } : {}),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+/** D-5: capture the current page snapshot text for commands that return `{}`. */
+async function runSnapshotText(
+  deps: Required<CliDependencies>,
+): Promise<string | undefined> {
+  try {
+    const run = await deps.upstream(["snapshot"]);
+    const parsed = parseUpstreamOutput(run.stdout, run.stderr, run.exitCode);
+    if (parsed.isError) return undefined;
+    const text =
+      parsed.kind === "json" ? snapshotTextOf(parsed.value) : parsed.text;
+    return text.length > 0 ? text : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The first positional arg after the command (the element ref, e.g. e10). */
+function argsAfterCommandRef(argv: string[]): string | undefined {
+  const rest = argv.slice(commandIndex(argv) + 1);
+  return rest.find((arg) => !arg.startsWith("-"));
 }
 
 /**

@@ -22,6 +22,7 @@ const GLOBAL_FLAGS_WITH_VALUE = new Set([
   "--fields",
   "--wait",
   "--settle",
+  "--dialog",
 ]);
 const GLOBAL_BOOLEAN_FLAGS = new Set([
   "--json",
@@ -193,7 +194,7 @@ export function stripWrapperFlags(argv: string[]): string[] {
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]!;
     if (arg === "--json" || arg === "--full") continue;
-    if (arg === "--fields" || arg === "--wait") {
+    if (arg === "--fields" || arg === "--wait" || arg === "--dialog") {
       index += 1; // also drop the value token
       continue;
     }
@@ -204,7 +205,8 @@ export function stripWrapperFlags(argv: string[]): string[] {
       if (next !== undefined && isValidWaitState(next)) index += 1;
       continue;
     }
-    if (arg.startsWith("--fields=") || arg.startsWith("--wait=")) continue;
+    if (arg.startsWith("--fields=") || arg.startsWith("--wait=") || arg.startsWith("--dialog="))
+      continue;
     if (arg.startsWith("--settle=")) continue;
     result.push(arg);
   }
@@ -236,6 +238,34 @@ export function parseWaitFlag(argv: string[]): string | undefined {
 
 export function isValidWaitState(state: string): boolean {
   return ["load", "domcontentloaded", "networkidle"].includes(state);
+}
+
+/**
+ * D-1: parse a `--dialog accept:<text>|dismiss` request on click/dblclick so a
+ * JS alert/confirm/prompt is handled atomically in the same call that opens it
+ * (upstream leaves the modal pending after the click, wedging every later
+ * command). Returns undefined when absent or malformed.
+ */
+export function parseDialogFlag(
+  argv: string[],
+): { action: "accept" | "dismiss"; text?: string } | undefined {
+  let raw: string | undefined;
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index]!;
+    if (arg.startsWith("--dialog=")) raw = arg.slice("--dialog=".length);
+    else if (arg === "--dialog") raw = argv[index + 1];
+    if (raw !== undefined) break;
+  }
+  if (raw === undefined) return undefined;
+  const value = raw.trim();
+  if (value === "dismiss") return { action: "dismiss" };
+  if (value === "accept") return { action: "accept" };
+  const acceptMatch = value.match(/^accept:(.*)$/);
+  if (acceptMatch) return { action: "accept", text: acceptMatch[1] };
+  // ponytail: a bare value is treated as accept-with-text for prompts, the
+  // common case; explicit `dismiss` is required to cancel.
+  if (value.length > 0) return { action: "accept", text: value };
+  return undefined;
 }
 
 /** Read a `--settle [state]` request (C-4). Returns the load state to settle on
@@ -304,13 +334,18 @@ export const VALIDATION_PROBE_COMMANDS = new Set(["click", "dblclick"]);
  * returns the offending fields with identifying metadata so the wrapper can
  * surface `validation: { ok: false, invalid_fields: [...] }`.
  *
+ * D-8: the same probe also reports the open pages in the context. When a click
+ * spawns a popup (`window.open` / `target=_blank`), the page count grows, so the
+ * wrapper surfaces `new_tabs` without a second round-trip — every upstream call
+ * is ~1-2s, so piggy-backing keeps the common (no-popup) click fast.
+ *
  * The `pca-validation-probe` comment marker inside the emitted snippet lets tests
  * identify this internal call without consuming the command-under-test response
  * queue. Like the other run-code snippets, this is an async arrow expression
  * receiving `page`.
  */
 export function validationProbeCode(): string {
-  return `async (page) => { /* pca-validation-probe */ const info = await page.evaluate(() => { const sel = "input:invalid, select:invalid, textarea:invalid"; const invalid = Array.from(document.querySelectorAll(sel)); const active = document.activeElement; return { activeIsInvalid: !!(active && typeof active.matches === "function" && active.matches(":invalid")), fields: invalid.map((el) => ({ tag: el.tagName.toLowerCase(), type: el.getAttribute("type") || null, name: el.getAttribute("name") || null, id: el.id || null, placeholder: el.getAttribute("placeholder") || null, label: el.labels && el.labels[0] ? el.labels[0].innerText.trim() : null, message: el.validationMessage || null })) }; }); return info; }`;
+  return `async (page) => { /* pca-validation-probe */ const info = await page.evaluate(() => { const sel = "input:invalid, select:invalid, textarea:invalid"; const invalid = Array.from(document.querySelectorAll(sel)); const active = document.activeElement; return { activeIsInvalid: !!(active && typeof active.matches === "function" && active.matches(":invalid")), fields: invalid.map((el) => ({ tag: el.tagName.toLowerCase(), type: el.getAttribute("type") || null, name: el.getAttribute("name") || null, id: el.id || null, placeholder: el.getAttribute("placeholder") || null, label: el.labels && el.labels[0] ? el.labels[0].innerText.trim() : null, message: el.validationMessage || null })) }; }); const ctx = page.context(); const pages = await Promise.all(ctx.pages().map(async (p, i) => ({ index: i, current: p === page, url: p.url(), title: await p.title().catch(() => "") }))); return { ...info, pageCount: pages.length, currentUrl: page.url(), pages }; }`;
 }
 
 /**
@@ -414,6 +449,7 @@ function isInlineValueFlag(arg: string): boolean {
     arg.startsWith("--session=") ||
     arg.startsWith("--fields=") ||
     arg.startsWith("--wait=") ||
-    arg.startsWith("--settle=")
+    arg.startsWith("--settle=") ||
+    arg.startsWith("--dialog=")
   );
 }
