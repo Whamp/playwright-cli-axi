@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+
 import type { CliResult } from "../cli/main.js";
 import { errorToStdout } from "../presenter/errors.js";
 import { type ToonValue, toToon } from "../presenter/toon.js";
@@ -6,6 +8,7 @@ import { isObject, parseUpstreamOutput } from "../upstream/parse.js";
 import type { UpstreamRunner } from "../upstream/runner.js";
 import {
   argsAfterCommand,
+  canonicalizePath,
   commandName,
   stripWrapperFlags,
   type VideoCommandName,
@@ -31,6 +34,8 @@ export interface VideoCommandContext {
   upstream: UpstreamRunner;
   store: VideoStore;
   now: () => Date;
+  /** Shell cwd used to resolve relative video artifact paths for existence checks. */
+  cwd: string;
   /**
    * N-8: whether a browser page is currently open, so `video-start` can guard
    * against starting a recording that captures nothing. Injectable so tests
@@ -149,18 +154,26 @@ export async function handleVideoCommand(
     };
   }
 
+  const artifactBase = run.artifactBase ?? context.cwd;
   const nextState = mutateStateAfterSuccess(
     command,
     validation.options,
     state,
     parsed,
     context.now(),
+    artifactBase,
   );
   await context.store.save(nextState);
   return {
     exitCode: 0,
     stdout: toToon(
-      videoSuccessModel(command, validation.options, nextState, parsed),
+      videoSuccessModel(
+        command,
+        validation.options,
+        nextState,
+        parsed,
+        artifactBase,
+      ),
     ),
   };
 }
@@ -311,6 +324,7 @@ function mutateStateAfterSuccess(
   state: VideoSidecarState,
   parsed: ReturnType<typeof parseUpstreamOutput>,
   now: Date,
+  artifactBase: string,
 ): VideoSidecarState {
   const at = now.toISOString();
   const next: VideoSidecarState = structuredClone(state);
@@ -327,7 +341,10 @@ function mutateStateAfterSuccess(
       next.lastFiles = [];
       return next;
     case "video-stop": {
-      const artifacts = extractVideoArtifacts(parsed);
+      const artifacts = existingVideoArtifacts(
+        extractVideoArtifacts(parsed),
+        artifactBase,
+      );
       next.recording = { ...next.recording, status: "inactive", stoppedAt: at };
       next.lastFiles = artifacts.all;
       return next;
@@ -362,9 +379,13 @@ function videoSuccessModel(
   options: VideoOptions,
   state: VideoSidecarState,
   parsed: ReturnType<typeof parseUpstreamOutput>,
+  artifactBase: string,
 ): ToonValue {
   if (command === "video-stop") {
-    const artifacts = extractVideoArtifacts(parsed);
+    const artifacts = existingVideoArtifacts(
+      extractVideoArtifacts(parsed),
+      artifactBase,
+    );
     return {
       command,
       status: "ok",
@@ -649,6 +670,27 @@ function classifyVideoArtifacts(paths: string[]): VideoArtifacts {
   const videos = paths.filter(isVideoArtifact);
   const otherArtifacts = paths.filter((path) => !isVideoArtifact(path));
   return { videos, otherArtifacts, all: [...videos, ...otherArtifacts] };
+}
+
+function existingVideoArtifacts(
+  artifacts: VideoArtifacts,
+  artifactBase: string,
+): VideoArtifacts {
+  const exists = (path: string) =>
+    existsSync(resolveArtifactPath(path, artifactBase));
+  const videos = artifacts.videos.filter(exists);
+  const otherArtifacts = artifacts.otherArtifacts.filter(exists);
+  return { videos, otherArtifacts, all: [...videos, ...otherArtifacts] };
+}
+
+function resolveArtifactPath(path: string, artifactBase: string): string {
+  const isAbsolute =
+    path.startsWith("/") ||
+    /^[A-Za-z]:[\\/]/.test(path) ||
+    path.startsWith("\\\\");
+  return isAbsolute
+    ? canonicalizePath(path)
+    : canonicalizePath(`${artifactBase.replace(/\/+$/, "")}/${path}`);
 }
 
 function isVideoArtifact(path: string): boolean {

@@ -1088,3 +1088,231 @@ Re-confirmed live after the fixes: browser auto-detection (F-2), flattened
 navigation snapshots (P-1/F-3), flattened eval/run-code, storage/network
 flattening, `found: false` empty states, `drag`/`hover` (still return snapshots),
 and the C-1 HTML5-validation probe. Full suite + property tests green.
+
+---
+
+## Dogfood #5 — SauceDemo checkout on merged `main`
+
+**Date:** 2026-06-25  
+**Build:** local `main` at `a879f2f` (`node dist/bin/playwright-cli-axi.js`, wrapper
+`0.1.0`, upstream `@playwright/cli` `0.1.14`)  
+**Task:** complete a real SauceDemo checkout flow: log in, sort products by price,
+add the highest-price item, finish checkout, capture console/network/storage/artifact
+state, exercise spawned-tab handling, and record a video.
+
+### Flow completed ✅
+
+- Opened `https://www.saucedemo.com/` with local merged `main`.
+- Logged in as `standard_user` / `secret_sauce`.
+- Sorted products with `select e38 'Price (high to low)'`.
+- Added `Sauce Labs Fleece Jacket` (`$49.99`) to cart.
+- Checked out with demo customer details.
+- Verified overview: `Item total: $49.99`, `Tax: $4.00`, `Total: $53.99`.
+- Finished checkout and verified completion text: `Thank you for your order!`.
+
+Artifacts:
+
+- Screenshot: `/tmp/dogfood5/complete.png` (35 KB)
+- PDF: `/tmp/dogfood5/complete.pdf` (55 KB)
+- Storage state: `/tmp/dogfood5/saucedemo-state.json`
+- Video: `/tmp/dogfood5/saucedemo.webm` (4.4 MB, 5 chapters)
+
+### What worked well
+
+- Navigation snapshots remained flattened file paths.
+- Standalone `snapshot` returned `snapshot.file` instead of escaped inline text.
+- `select` returned a post-action snapshot, making sorted product order easy to verify.
+- `console` returned structured `totals` and `messages[]`:
+  `messages:8`, `errors:6`, `warnings:0`.
+- `state-save`, `screenshot`, and `pdf` returned structured absolute `file` fields.
+- `click` on the Twitter/X social link surfaced `new_tabs[]` with title and URL:
+  `Sauce Labs (@saucelabs) / X`, `https://x.com/saucelabs`.
+- `tab-select 1` then returned consistent `tab_rows` and `eval document.title`
+  confirmed the active tab.
+- Video chapters/status were usable and gave structured `chapter_rows`.
+
+### DF5-1 🟡 — `fill` still returns empty `{}` with no post-action state
+
+Evidence:
+
+```text
+fill e197 Dog      -> result: {}
+fill e199 Food     -> result: {}
+fill e201 90210    -> result: {}
+```
+
+This is the same agent round-trip shape D-5 fixed for `check`/`uncheck`/`press`:
+the command succeeds but gives no state evidence. In this task the next `click`
+proved the fields were accepted, but a standalone form-fill task would still need
+an extra `snapshot` or `eval` to verify values.
+
+Suggested fix: add `fill` (and probably `type`) to the post-action snapshot family,
+or return `{ value }` for the filled target ref.
+
+### DF5-2 🟡 — `tabs.current` is inconsistent/off-by-one
+
+After clicking the Twitter/X link:
+
+```text
+tab-list:
+  tabs:
+    count: 2
+    current: 1
+  tab_rows:
+    0,true,Swag Labs,https://www.saucedemo.com/checkout-complete.html
+    1,false,Sauce Labs (@saucelabs) / X,https://x.com/saucelabs
+```
+
+After closing tab `1`, only tab index `0` remained, but top-level current still
+reported `1`:
+
+```text
+tab-close 1:
+  tabs:
+    count: 1
+    current: 1
+  tab_rows:
+    0,true,Swag Labs,https://www.saucedemo.com/checkout-complete.html
+```
+
+The row table is correct; the top-level `tabs.current` appears count-like or stale.
+Agents should trust `tab_rows[].current` for now.
+
+Suggested fix: compute `tabs.current` from the parsed row with `current:true`, not
+from count or upstream display metadata.
+
+### DF5-3 🟡 — video results report a phantom second file
+
+`video-stop` and `video-status` reported two video files:
+
+```text
+video_files[2]:
+  - ../../dogfood5/saucedemo.webm
+  - ./saucedemo-1.webm
+```
+
+But only the requested file exists:
+
+```text
+/tmp/dogfood5/saucedemo.webm  4.4M
+saucedemo-1.webm             No such file or directory
+find /tmp ... saucedemo-1.webm -> no matches
+```
+
+The recording is usable, but `files.count: 2` / `last_files[2]` overstates the
+available evidence and points agents at a missing artifact.
+
+Suggested fix: canonicalize/filter video artifact paths through `existsSync` before
+reporting, or mark missing artifacts explicitly.
+
+### DF5-4 🟡 — network/storage reads remain display strings
+
+Console and artifacts are now structured, but network and localStorage reads still
+require string parsing:
+
+```text
+requests -> result: "5. [POST] https://events.backtrace.io/... => [401] Unauthorized\n..."
+localstorage-list -> result: "backtrace-guid=...\nbacktrace-last-active=..."
+```
+
+This is functionally usable and already flattened at top level, but not as AXI-clean
+as `console.messages[]`, `tab_rows[]`, or artifact `file` fields.
+
+Suggested fix: parse common list outputs into tables (`request_rows[]`,
+`localstorage_rows[]`) while preserving the display string for humans.
+
+## Dogfood #5 — Resolution for findings 1–3
+
+**Date:** 2026-06-25  
+**Build:** local `main` after DF5 fixes (`node dist/bin/playwright-cli-axi.js`)
+
+### DF5-1 🟡 — `fill` post-action state (FIXED)
+
+`fill` now uses the same post-action snapshot path as `check`/`uncheck`/`press`.
+The wrapper runs a follow-up `snapshot`, writes it to the cache, and returns
+`snapshot: { file }` instead of leaving the agent with only `result: {}`.
+
+Live smoke:
+
+```text
+fill e11 standard_user
+snapshot:
+  file: /tmp/playwright-cli-axi-cache/playwright-cli-axi/.playwright-cli/2026-06-25T18-26-16-519Z.yml
+```
+
+The file existed on disk (`667` bytes), so the form-fill effect was inspectable
+without a separate command.
+
+Tests:
+
+- `main.spec.ts` — `DF5-1: fill issues the post-snapshot probe so state is visible`
+- Full suite: `300` tests passing
+
+### DF5-2 🟡 — `tabs.current` consistency (FIXED)
+
+`tabs.current` now reports the **current tab index** from the parsed
+`tab_rows[].current` row, not the count of rows marked current.
+
+Live smoke after spawning and closing a tab:
+
+```text
+tab-list:
+  tabs:
+    count: 2
+    current: 0
+  tab_rows:
+    0,true,The Internet,https://the-internet.herokuapp.com/windows
+    1,false,New Window,https://the-internet.herokuapp.com/windows/new
+
+tab-close 1:
+  tabs:
+    count: 1
+    current: 0
+  tab_rows:
+    0,true,The Internet,https://the-internet.herokuapp.com/windows
+```
+
+Tests:
+
+- `success.spec.ts` — `DF5-2: tabs.current is the current tab index, not current-tab count`
+- Full suite: `300` tests passing
+
+### DF5-3 🟡 — phantom video files (FIXED)
+
+Video artifact reporting now filters reported upstream artifacts through the
+filesystem before saving `lastFiles` or rendering `video-stop`/`video-status`.
+Missing artifacts are no longer counted or listed as available evidence.
+
+Live smoke:
+
+```text
+video-stop:
+  files:
+    count: 1
+  video_files[1]:
+    - ../../dogfood5-final/final.webm
+
+video-status:
+  files:
+    count: 1
+  last_files[1]:
+    - ../../dogfood5-final/final.webm
+```
+
+Only `/tmp/dogfood5-final/final.webm` existed (`13` KB); no phantom
+`./saucedemo-1.webm`-style file was reported.
+
+Tests:
+
+- `main.spec.ts` — `DF5-3: video-stop filters missing artifacts instead of reporting phantom files`
+- `videoCommands.property.spec.ts` updated so generated successful stop sequences use a real fake artifact
+- Full suite: `300` tests passing
+
+### Validation
+
+- `npm run typecheck` ✅
+- `npm run test` ✅ (`300` tests, `25` files)
+- `npm run test:prop` ✅ (`52` property tests, `10` files)
+- `npm run build` ✅
+- `npm run check:skill` ✅
+- Live browser smoke ✅ (`fill`, spawned-tab `tab-list`/`tab-close`, `video-start`/`video-stop`/`video-status`)

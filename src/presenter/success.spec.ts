@@ -722,6 +722,14 @@ describe("commandSuccessModel storage empty states (H3-4)", () => {
     expect(toToon(model)).not.toContain("result: result:");
   });
 
+  it("DF5-2: tabs.current is the current tab index, not current-tab count", () => {
+    const model = commandSuccessModel(
+      "tab-list",
+      json({ result: "- 0: (current) [A](https://a/)" }),
+    );
+    expect(model.tabs).toEqual({ count: 1, current: 0 });
+  });
+
   it("D-7: console returns structured totals + messages table, not a display string", () => {
     const model = commandSuccessModel(
       "console",

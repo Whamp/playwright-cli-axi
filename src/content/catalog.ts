@@ -63,7 +63,7 @@ const skillDocSections = [
   "",
   "### Interaction post-state and spawned tabs",
   "",
-  "- `check`/`uncheck` report the target ref's `checked` boolean and attach a post-action snapshot; `press`/`hover` attach a snapshot too, so the effect is visible without a separate read.",
+  "- `check`/`uncheck` report the target ref's `checked` boolean and attach a post-action snapshot; `fill`/`press`/`hover` attach a snapshot too, so the effect is visible without a separate read.",
   "- When a `click`/`dblclick` spawns a new tab or window, the result surfaces `new_tabs[]` (piggy-backed on the validation probe, so it adds no extra round-trip).",
   "",
   "### Structured tab, console, and artifact results",

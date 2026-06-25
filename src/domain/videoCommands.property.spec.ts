@@ -1,3 +1,7 @@
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import fc, { type Arbitrary } from "fast-check";
 import { describe, expect, it } from "vitest";
 
@@ -254,6 +258,8 @@ describe("videoCommands properties", () => {
     await fc.assert(
       fc.asyncProperty(fc.array(stepArb, { maxLength: 20 }), async (steps) => {
         const store = new MemoryVideoStore();
+        const cwd = await mkdtemp(join(tmpdir(), "playwright-cli-axi-video-"));
+        await writeFile(join(cwd, "out.webm"), "video");
         const model = defaultVideoState("/repo", "key", "default");
         const upstreamCalls: string[][] = [];
         const upstream = async (argv: string[]): Promise<UpstreamRun> => {
@@ -281,6 +287,7 @@ describe("videoCommands properties", () => {
             upstream,
             store,
             now: () => new Date("2026-06-23T20:00:00.000Z"),
+            cwd,
             pageOpenChecker: async () => "open",
           });
 

@@ -120,6 +120,7 @@ export async function runCli(
       upstream: deps.upstream,
       store: createVideoStore({ ...deps, session: sessionFromArgv(argv) }),
       now: deps.now,
+      cwd: deps.cwd,
     });
   }
   if (isCloseLikeCommand(command)) return await runCloseLikeCommand(argv, deps);
@@ -639,7 +640,7 @@ async function runValidationProbe(deps: Required<CliDependencies>): Promise<
 const DIALOG_PROBE_COMMANDS = new Set(["click", "dblclick"]);
 /** D-5: commands that return an empty `{}` and so need a captured post-action
  * snapshot to report their effect. */
-const POST_SNAPSHOT_COMMANDS = new Set(["check", "uncheck", "press"]);
+const POST_SNAPSHOT_COMMANDS = new Set(["check", "uncheck", "press", "fill"]);
 
 /** Write a snapshot text payload to the cache, mirroring navigation artifacts. */
 function writeSnapshot(path: string, contents: string): void {
